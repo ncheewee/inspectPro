@@ -816,17 +816,8 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
         const flagCount=(fullRec.items||[]).filter(i=>i.status==="flagged").length;
         const okCount=(fullRec.items||[]).filter(i=>i.status==="ok").length;
         const flagLines=(fullRec.items||[]).filter(i=>i.status==="flagged")
-          .map(i=>`• ${i.label}${i.observation?" – "+i.observation:""}`).join("
-");
-        const tgBody=`Inspector: <b>${inspector?.name||authUser.name}</b>
-Zone: <b>${fullRec.zone_id} · ${fullRec.zone_name}</b>
-Date: ${fD(endTime)}
-OK: ${okCount} · Flagged: <b>${flagCount}</b>${flagCount>0?"
-
-⚠ Flagged:
-"+flagLines:"
-
-✓ All clear"}`;
+          .map(i=>`• ${i.label}${i.observation?" – "+i.observation:""}`).join("\n");
+        const tgBody=`Inspector: <b>${inspector?.name||authUser.name}</b>\nZone: <b>${fullRec.zone_id} · ${fullRec.zone_name}</b>\nDate: ${fD(endTime)}\nOK: ${okCount} · Flagged: <b>${flagCount}</b>${flagCount>0?"\n\n⚠ Flagged:\n"+flagLines:"\n\n✓ All clear"}`;
         if(tgConfig?.tgBotToken&&tgConfig?.tgChatId){
           notifyTelegram("InspectPro – Inspection Submitted",tgBody,tgConfig).catch(()=>{});
         }
