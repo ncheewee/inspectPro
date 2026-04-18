@@ -795,38 +795,26 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
       const endTime=new Date().toISOString();
       await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
 
-      // ── Email report ─────────────────────────────────────────────────────
-      // Fetch full detail (with items + media) to build the email body
+      // ── Email + Telegram notification ────────────────────────────────────
       try{
         const fullRec=await api.get(`/api/inspections/${activeInsp.id}`);
         const emailContent=await buildEmailContent(fullRec,users,zones);
         const inspector=users.find(u=>u.id===authUser.id);
-        const subj=`InspectPro Report – ${inspector?.name||authUser.name} – ${fD(endTime)}`;
+        const subj="InspectPro Report - "+(inspector?.name||authUser.name)+" - "+fD(endTime);
         const targets=[];
-        if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj});
+        if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj:subj});
         users.filter(u=>u.role==="manager"&&u.email?.trim()).forEach(m=>{
           if(!targets.find(t=>t.email===m.email.trim()))
-            targets.push({email:m.email.trim(),name:m.name,subj:`[InspectPro] ${subj}`});
+            targets.push({email:m.email.trim(),name:m.name,subj:"[InspectPro] "+subj});
         });
         if(targets.length>0){
           const cfg=ejConfig||{};
           await Promise.allSettled(targets.map(t=>sendEmail(t.email,t.name,t.subj,emailContent,cfg)));
         }
-        // ── Telegram notification ───────────────────────────────────────────
         const flagCount=(fullRec.items||[]).filter(i=>i.status==="flagged").length;
         const okCount=(fullRec.items||[]).filter(i=>i.status==="ok").length;
-        const flagLines=(fullRec.items||[]).filter(i=>i.status==="flagged")
-          .map(i=>`• ${i.label}${i.observation?" – "+i.observation:""}`).join("
-");
-        const tgBody=`Inspector: <b>${inspector?.name||authUser.name}</b>
-Zone: <b>${fullRec.zone_id} · ${fullRec.zone_name}</b>
-Date: ${fD(endTime)}
-OK: ${okCount} · Flagged: <b>${flagCount}</b>${flagCount>0?"
-
-⚠ Flagged:
-"+flagLines:"
-
-✓ All clear"}`;
+        const flagLines=(fullRec.items||[]).filter(i=>i.status==="flagged").map(i=>"• "+i.label+(i.observation?" - "+i.observation:"")).join("\n");
+        const tgBody="Inspector: <b>"+(inspector?.name||authUser.name)+"</b>\nZone: <b>"+fullRec.zone_id+" · "+fullRec.zone_name+"</b>\nDate: "+fD(endTime)+"\nOK: "+okCount+" · Flagged: <b>"+flagCount+"</b>"+(flagCount>0?"\n\n⚠ Flagged:\n"+flagLines:"\n\n✓ All clear");
         if(tgConfig?.tgBotToken&&tgConfig?.tgChatId){
           notifyTelegram("InspectPro – Inspection Submitted",tgBody,tgConfig).catch(()=>{});
         }
