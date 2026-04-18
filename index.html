@@ -795,26 +795,38 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
       const endTime=new Date().toISOString();
       await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
 
-      // ── Email + Telegram notification ────────────────────────────────────
+      // ── Email report ─────────────────────────────────────────────────────
+      // Fetch full detail (with items + media) to build the email body
       try{
         const fullRec=await api.get(`/api/inspections/${activeInsp.id}`);
         const emailContent=await buildEmailContent(fullRec,users,zones);
         const inspector=users.find(u=>u.id===authUser.id);
-        const subj="InspectPro Report - "+(inspector?.name||authUser.name)+" - "+fD(endTime);
+        const subj=`InspectPro Report – ${inspector?.name||authUser.name} – ${fD(endTime)}`;
         const targets=[];
-        if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj:subj});
+        if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj});
         users.filter(u=>u.role==="manager"&&u.email?.trim()).forEach(m=>{
           if(!targets.find(t=>t.email===m.email.trim()))
-            targets.push({email:m.email.trim(),name:m.name,subj:"[InspectPro] "+subj});
+            targets.push({email:m.email.trim(),name:m.name,subj:`[InspectPro] ${subj}`});
         });
         if(targets.length>0){
           const cfg=ejConfig||{};
           await Promise.allSettled(targets.map(t=>sendEmail(t.email,t.name,t.subj,emailContent,cfg)));
         }
+        // ── Telegram notification ───────────────────────────────────────────
         const flagCount=(fullRec.items||[]).filter(i=>i.status==="flagged").length;
         const okCount=(fullRec.items||[]).filter(i=>i.status==="ok").length;
-        const flagLines=(fullRec.items||[]).filter(i=>i.status==="flagged").map(i=>"• "+i.label+(i.observation?" - "+i.observation:"")).join("\n");
-        const tgBody="Inspector: <b>"+(inspector?.name||authUser.name)+"</b>\nZone: <b>"+fullRec.zone_id+" · "+fullRec.zone_name+"</b>\nDate: "+fD(endTime)+"\nOK: "+okCount+" · Flagged: <b>"+flagCount+"</b>"+(flagCount>0?"\n\n⚠ Flagged:\n"+flagLines:"\n\n✓ All clear");
+        const flagLines=(fullRec.items||[]).filter(i=>i.status==="flagged")
+          .map(i=>`• ${i.label}${i.observation?" – "+i.observation:""}`).join("
+");
+        const tgBody=`Inspector: <b>${inspector?.name||authUser.name}</b>
+Zone: <b>${fullRec.zone_id} · ${fullRec.zone_name}</b>
+Date: ${fD(endTime)}
+OK: ${okCount} · Flagged: <b>${flagCount}</b>${flagCount>0?"
+
+⚠ Flagged:
+"+flagLines:"
+
+✓ All clear"}`;
         if(tgConfig?.tgBotToken&&tgConfig?.tgChatId){
           notifyTelegram("InspectPro – Inspection Submitted",tgBody,tgConfig).catch(()=>{});
         }
@@ -995,16 +1007,18 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
                   📷 Photo{media.filter(m=>m.type==="photo").length>0?` (${media.filter(m=>m.type==="photo").length})`:""}</button>
                 <input type="file" accept="image/*" capture="environment" style={{display:"none"}} ref={el=>photoRefs.current[item.id]=el} onChange={e=>handlePhoto(item.id,e)}/>
                 <VideoCapture onCapture={f=>handleVideo(item.id,f)}/>
-                {media.map((m,mi)=>m.type==="photo"
-                  ?<div key={mi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0}}>
+                {media.map((m,mi)=>{
+                  const photos=media.filter(x=>x.type==="photo");
+                  return m.type==="photo"
+                  ?<div key={mi} onClick={()=>{const lbItems=photos.map((x,i)=>({type:"photo",url:x.url,caption:`Photo ${i+1}`}));openLightbox(lbItems,photos.indexOf(m));}} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0,cursor:"zoom-in"}}>
                     <img src={m.thumbnail_url||m.url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                    <button onClick={()=>delMedia(item.id,m.id)} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
+                    <button onClick={e=>{e.stopPropagation();delMedia(item.id,m.id);}} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
                   </div>
                   :<div key={mi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0,background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}>
                     <span style={{fontSize:22}}>🎥</span>
                     <button onClick={()=>delMedia(item.id,m.id)} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
-                  </div>
-                )}
+                  </div>;
+                })}
               </div>}
             </div>
             <Badge status={item.status}/>
@@ -1182,6 +1196,7 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
   const [note,setNote]=useState("");
   const [notes,setNotes]=useState(null);
   const [loadingNotes,setLoadingNotes]=useState(false);
+  const [lightbox,setLightbox]=useState(null);
 
   useEffect(()=>{
     if(expanded&&notes===null){
@@ -1200,6 +1215,9 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
     }catch(e){alert("Could not post note: "+e.message);}
   };
 
+  const media=item.media||[];
+  const openLightbox=(items,idx=0)=>setLightbox({items,idx});
+
   return <div style={{background:"var(--card)",border:`1px solid ${expanded?"var(--bd2)":"var(--bd)"}`,borderRadius:10,overflow:"hidden"}}>
     <div onClick={onToggle} style={{padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:9}}>
       <Badge status={item.status}/>
@@ -1217,13 +1235,20 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
     </div>
     {expanded&&<div style={{borderTop:"1px solid var(--bd)",padding:"14px 16px",background:"var(--surf)"}}>
       {item.observation&&<div style={{marginBottom:12}}><Lbl>Observation</Lbl><div style={{fontSize:14,color:"var(--t2)",background:"var(--card)",borderRadius:7,padding:"9px 12px",lineHeight:1.6}}>{item.observation}</div></div>}
-      {(item.media||[]).length>0&&<div style={{marginBottom:12}}>
+      {media.length>0&&<div style={{marginBottom:12}}>
         <Lbl>Media</Lbl>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {(item.media||[]).map((m,i)=>m.type==="photo"
-            ?<img key={i} src={m.thumbnail_url||m.url} style={{width:80,height:80,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)"}}/>
-            :<div key={i} style={{width:80,height:80,borderRadius:7,border:"1px solid var(--bd)",background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:28}}>🎥</span></div>
-          )}
+          {media.map((m,i)=>{
+            const photos=media.filter(x=>x.type==="photo");
+            const videos=media.filter(x=>x.type==="video");
+            return m.type==="photo"
+            ?<img key={i} src={m.thumbnail_url||m.url}
+                onClick={()=>{const lbItems=photos.map((x,j)=>({type:"photo",url:x.url,caption:`Photo ${j+1}`}));openLightbox(lbItems,photos.indexOf(m));}}
+                style={{width:80,height:80,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)",cursor:"zoom-in"}}/>
+            :<div key={i}
+                onClick={()=>{const lbItems=videos.map((x,j)=>({type:"video",url:x.url,caption:`Video ${j+1}`}));openLightbox(lbItems,videos.indexOf(m));}}
+                style={{width:80,height:80,borderRadius:7,border:"1px solid var(--bd)",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-in"}}><span style={{fontSize:28}}>🎥</span></div>;
+          })}
         </div>
       </div>}
       <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
@@ -1245,6 +1270,7 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
         </div>
       </>}
     </div>}
+    {lightbox&&<Lightbox items={lightbox.items} startIdx={lightbox.idx} onClose={()=>setLightbox(null)}/>}
   </div>;
 }
 
@@ -1586,13 +1612,16 @@ function ReportsView({users,zones}){
                         <div style={{fontSize:13,color:"var(--t1)",fontWeight:item.status==="flagged"?600:400}}>{item.label}</div>
                         {item.observation&&<div style={{fontSize:12,color:"var(--t3)",marginTop:2,fontStyle:"italic"}}>{item.observation}</div>}
                         {(item.media||[]).length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
-                          {item.media.map((m,mi)=>m.type==="photo"
+                          {item.media.map((m,mi)=>{
+                            const photos=item.media.filter(x=>x.type==="photo");
+                            const videos=item.media.filter(x=>x.type==="video");
+                            return m.type==="photo"
                             ?<img key={mi} src={m.thumbnail_url||m.url}
-                              onClick={()=>{const lbItems=item.media.filter(x=>x.type==="photo").map((x,i)=>({type:"photo",url:x.url,caption:`${item.label} – photo ${i+1}`}));openLightbox(lbItems,mi);}}
+                              onClick={()=>{const lbItems=photos.map((x,i)=>({type:"photo",url:x.url,caption:`${item.label} – photo ${i+1}`}));openLightbox(lbItems,photos.indexOf(m));}}
                               style={{width:52,height:52,objectFit:"cover",borderRadius:5,border:"1px solid var(--bd)",cursor:"zoom-in"}}/>
-                            :<div key={mi} onClick={()=>{const lbItems=item.media.filter(x=>x.type==="video").map((x,i)=>({type:"video",url:x.url,caption:`${item.label} – video ${i+1}`}));openLightbox(lbItems,mi);}}
-                              style={{width:52,height:52,borderRadius:5,border:"1px solid var(--bd)",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-in"}}><span style={{fontSize:20}}>🎥</span></div>
-                          )}
+                            :<div key={mi} onClick={()=>{const lbItems=videos.map((x,i)=>({type:"video",url:x.url,caption:`${item.label} – video ${i+1}`}));openLightbox(lbItems,videos.indexOf(m));}}
+                              style={{width:52,height:52,borderRadius:5,border:"1px solid var(--bd)",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-in"}}><span style={{fontSize:20}}>🎥</span></div>;
+                          })}
                         </div>}
                       </div>
                       <Badge status={item.status}/>
