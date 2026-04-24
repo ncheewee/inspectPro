@@ -556,7 +556,7 @@ function LoginModal({users,onLogin,onClose}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:32,height:32,background:"var(--amber)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,color:"#fff",fontFamily:"'Syne',sans-serif"}}>IP</div>
-          <span style={{fontWeight:700,fontSize:16,color:"var(--t1)",fontFamily:"'Syne',sans-serif"}}>Sign In</span>
+          <span style={{fontWeight:700,fontSize:16,color:"var(--t1)",fontFamily:"'Syne',sans-serif"}}>Log In</span>
         </div>
         <button onClick={onClose} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:20}}>✕</button>
       </div>
@@ -631,7 +631,7 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,fon
               </button>
               <button onClick={onSignOut} style={C.btn("ghost",{padding:"5px 8px",fontSize:12})}>Out</button>
             </>
-            :<button onClick={onSignIn} style={C.btn("pri",{padding:"6px 12px",fontSize:13})}>Sign In</button>
+            :<button onClick={onSignIn} style={C.btn("pri",{padding:"6px 12px",fontSize:13})}>Log In</button>
           }
         </div>
       </div>
@@ -1841,7 +1841,7 @@ function App(){
         {view==="reports" &&<ReportsView users={users} zones={zones}/>}
       </div>
     </div>
-    {!authUser&&<div onClick={()=>setShowLogin(true)} style={{position:"fixed",bottom:"calc(72px + env(safe-area-inset-bottom,0px))",right:18,background:"var(--amber)",color:"#fff",fontWeight:600,fontSize:14,padding:"11px 20px",borderRadius:40,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:7,zIndex:100}}>🔑 Sign In</div>}
+    {!authUser&&<div onClick={()=>setShowLogin(true)} style={{position:"fixed",bottom:"calc(72px + env(safe-area-inset-bottom,0px))",right:18,background:"var(--amber)",color:"#fff",fontWeight:600,fontSize:14,padding:"11px 20px",borderRadius:40,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:7,zIndex:100}}>🔑 Log In</div>}
     {showLogin&&<LoginModal users={users} onLogin={handleLogin} onClose={()=>setShowLogin(false)}/>}
     {showAdmin&&authUser&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
   </div>;
