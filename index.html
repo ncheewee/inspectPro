@@ -30,13 +30,13 @@
   --ok-bg:#d1fae5;--ok-fg:#065f46;--fl-bg:#fef2f2;--fl-bd:rgba(220,38,38,.2);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-html{font-size:16px;}
+html{font-size:17px;}
 body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--t1);-webkit-font-smoothing:antialiased;transition:background .25s,color .25s;}
 h1,h2,h3{font-family:'Syne',sans-serif;font-weight:700;}
 ::-webkit-scrollbar{width:4px;height:4px;}::-webkit-scrollbar-track{background:var(--surf);}::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px;}
 select option{background:var(--surf);color:var(--t1);}
 input:focus,select:focus,textarea:focus{outline:none!important;border-color:var(--blue)!important;box-shadow:0 0 0 3px var(--bbg)!important;}
-input,select,textarea,button{font-family:'DM Sans',sans-serif;font-size:14px;}
+input,select,textarea,button{font-family:'DM Sans',sans-serif;font-size:16px;}
 textarea{resize:vertical;}img{display:block;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -49,7 +49,7 @@ textarea{resize:vertical;}img{display:block;}
 .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--surf);border-top:1px solid var(--bd);padding:0 0 env(safe-area-inset-bottom,0);box-shadow:0 -4px 20px rgba(0,0,0,.18);}
 .top-tabs{display:flex;}
 .main-pad{padding:16px 14px 80px;}
-@media(max-width:640px){.bottom-nav{display:flex;}.top-tabs{display:none;}.top-user-name{display:none!important;}.main-pad{padding:14px 10px 90px;}}
+@media(max-width:640px){.bottom-nav{display:flex;}.top-tabs{display:none;}.top-user-name{display:none!important;}.main-pad{padding:16px 12px 96px;}input,select,textarea{font-size:16px!important;}button{min-height:42px;}.fu{animation:none!important;}}
 </style>
 </head>
 <body>
@@ -66,12 +66,21 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5";
+const VERSION = "v5.1";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
 const canManageConfig = user => isAdminRole(user?.role);
 const canManageOps = user => isManagerRole(user?.role);
+const canInspect = user => ["inspector","manager","admin"].includes(user?.role);
+const rosterPeople = users => {
+  const managers = users.filter(u=>isManagerRole(u.role));
+  const inspectors = users.filter(u=>u.role==="inspector");
+  return [...inspectors.slice(0, Math.max(0, 5-managers.length)), ...managers].slice(0,5);
+};
+const weekSlots = rosterData => rosterData?.Week || rosterData?.Any || [];
+const assignmentSlots = (rosterData, day) => [...weekSlots(rosterData), ...(rosterData?.[day] || [])];
+const completionKey = (userId, zoneId) => `${userId}|${zoneId}`;
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 const isoWk = d=>{const dd=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=dd.getUTCDay()||7;dd.setUTCDate(dd.getUTCDate()+4-day);const y1=new Date(Date.UTC(dd.getUTCFullYear(),0,1));return{week:Math.ceil(((dd-y1)/86400000+1)/7),year:dd.getUTCFullYear()};};
@@ -356,16 +365,14 @@ function Lightbox({items, startIdx=0, onClose}) {
 
 // ── AUTO-PLAN MODAL ───────────────────────────────────────────────────────────
 function AutoPlanModal({users,zones,onClose,today,onApplied}) {
-  const inspectors = users.filter(u=>u.role==="inspector");
-  const managers   = users.filter(u=>isManagerRole(u.role));
+  const inspectors = rosterPeople(users);
   const [startDate,setStartDate] = useState(()=>{
     const d=getMon(today);d.setDate(d.getDate()+7);return d.toISOString().split("T")[0];
   });
-  const [numWeeks,setNumWeeks]   = useState(4);
-  const [selDays,setSelDays]     = useState(["Mon","Tue","Wed","Thu","Fri"]);
+  const weeksLeft = Math.max(1, Math.ceil((new Date("2026-12-28T00:00:00") - getMon(today)) / (7*86400000)));
+  const [numWeeks,setNumWeeks]   = useState(weeksLeft);
   const [selInsp,setSelInsp]     = useState(inspectors.map(u=>u.id));
   const [selZones,setSelZones]   = useState(zones.slice(0,5).map(z=>z.id));
-  const [supId,setSupId]         = useState("");
   const [preview,setPreview]     = useState(null);
   const [saving,setSaving]       = useState(false);
   const [done,setDone]           = useState(false);
@@ -373,7 +380,7 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
   const toggleArr=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
 
   const generate=()=>{
-    if(!selInsp.length||!selZones.length||!selDays.length) return;
+    if(!selInsp.length||!selZones.length) return;
     const plan={};
     const start=getMon(new Date(startDate+"T00:00:00"));
     for(let w=0;w<numWeeks;w++){
@@ -382,10 +389,10 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
       plan[wk]={};
       const weekSlots=selInsp.map((inspId,iIdx)=>({
         inspectorIds:[inspId],
-        supervisorIds:supId?[supId]:[],
+        supervisorIds:[],
         zoneId:selZones[(iIdx+w)%selZones.length],
       }));
-      for(const day of selDays) plan[wk][day]=weekSlots;
+      plan[wk].Week=weekSlots;
     }
     setPreview(plan);
   };
@@ -412,7 +419,7 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
       ?<div style={{textAlign:"center",padding:"24px 0"}}>
         <div style={{fontSize:36,marginBottom:12}}>✅</div>
         <div style={{fontWeight:600,fontSize:16,color:"var(--t1)",marginBottom:6}}>Plan applied!</div>
-        <p style={{fontSize:14,color:"var(--t2)",marginBottom:20}}>{numWeeks} weeks · {selDays.length} days/week · {selInsp.length} inspectors across {selZones.length} zones.</p>
+        <p style={{fontSize:15,color:"var(--t2)",marginBottom:20}}>{numWeeks} weeks · {selInsp.length} people across {selZones.length} zones.</p>
         <button onClick={onClose} style={C.btn("pri",{padding:"10px 24px"})}>Done</button>
       </div>
       :<>
@@ -420,15 +427,14 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
           <div><Lbl>Starting Week</Lbl><input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={C.inp()}/></div>
           <div><Lbl>Duration</Lbl>
             <select value={numWeeks} onChange={e=>setNumWeeks(Number(e.target.value))} style={C.inp()}>
-              {[2,4,6,8,12,16,26,52].map(n=><option key={n} value={n}>{n} wk{n===4?" (1 mo)":n===12?" (3 mo)":n===26?" (6 mo)":n===52?" (1 yr)":""}</option>)}
+              {[4,8,12,26,weeksLeft].filter((n,i,a)=>n>0&&a.indexOf(n)===i).map(n=><option key={n} value={n}>{n} wk{n===weeksLeft?" (rest of 2026)":n===4?" (1 mo)":n===12?" (3 mo)":n===26?" (6 mo)":""}</option>)}
             </select>
           </div>
         </div>
-        <Lbl>Active Days</Lbl>
-        <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-          {DAYS.map(d=><button key={d} onClick={()=>setSelDays(a=>toggleArr(a,d))} style={{...C.btn(selDays.includes(d)?"pri":"ghost",{padding:"6px 11px",fontSize:13})}}>{d}</button>)}
+        <div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:8,padding:"11px 14px",marginBottom:16,fontSize:14,color:"var(--t2)",lineHeight:1.5}}>
+          Each person gets one zone per week and may complete it on any working day in that week. The rotation avoids the same person/zone pairing until the 5-week cycle repeats.
         </div>
-        <Lbl>Inspectors to rotate</Lbl>
+        <Lbl>People to rotate</Lbl>
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14}}>
           {inspectors.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:selInsp.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${selInsp.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
             <input type="checkbox" checked={selInsp.includes(u.id)} onChange={()=>setSelInsp(a=>toggleArr(a,u.id))} style={{accentColor:"var(--blue)",width:13,height:13}}/>
@@ -440,22 +446,17 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
           {zones.map(z=><button key={z.id} onClick={()=>setSelZones(a=>toggleArr(a,z.id))} style={{...C.btn(selZones.includes(z.id)?"pri":"ghost",{padding:"5px 9px",fontSize:12})}}>{z.id}</button>)}
         </div>
-        <Lbl>Supervisor for all slots (optional)</Lbl>
-        <select value={supId} onChange={e=>setSupId(e.target.value)} style={C.inp({marginBottom:16})}>
-          <option value="">None</option>
-          {managers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
         <div style={{background:"var(--bbg)",border:"1px solid var(--blue)22",borderRadius:8,padding:"10px 13px",marginBottom:16,fontSize:13,color:"var(--t2)"}}>
-          <strong style={{color:"var(--t1)"}}>Rotation:</strong> Each inspector gets one unique zone per week. Zones shift by one each week so all zones are covered across the cycle.
+          <strong style={{color:"var(--t1)"}}>Default team:</strong> 3 inspectors + 2 manager/admin users cover 5 zones each week.
         </div>
         {preview&&<div style={{background:"var(--gbg)",border:"1px solid var(--green)22",borderRadius:8,padding:"10px 13px",marginBottom:14,fontSize:13,color:"var(--t2)"}}>
-          ✓ Preview ready: <strong style={{color:"var(--t1)"}}>{Object.keys(preview).length} weeks</strong> · {selInsp.length} inspectors × {selZones.length} zones · {selDays.length} day{selDays.length!==1?"s":""}/week
+          ✓ Preview ready: <strong style={{color:"var(--t1)"}}>{Object.keys(preview).length} weeks</strong> · {selInsp.length} people × {selZones.length} zones
         </div>}
         {err&&<ErrBox msg={err}/>}
         <div style={{display:"flex",gap:9,justifyContent:"flex-end",flexWrap:"wrap"}}>
           <button onClick={onClose} style={C.btn("ghost")}>Cancel</button>
           {!preview
-            ?<button onClick={generate} disabled={!selInsp.length||!selZones.length||!selDays.length} style={{...C.btn("sec",{padding:"9px 18px"}),opacity:(selInsp.length&&selZones.length&&selDays.length)?1:.35}}>Preview →</button>
+            ?<button onClick={generate} disabled={!selInsp.length||!selZones.length} style={{...C.btn("sec",{padding:"9px 18px"}),opacity:(selInsp.length&&selZones.length)?1:.35}}>Preview →</button>
             :<><button onClick={()=>setPreview(null)} style={C.btn("sec",{padding:"9px 16px"})}>Re-configure</button>
               <button onClick={apply} disabled={saving} style={{...C.btn("pri",{padding:"9px 20px",display:"flex",alignItems:"center",gap:7}),opacity:saving?0.6:1}}>
                 {saving?<><Spinner size={13}/>Saving…</>:"✓ Apply Plan"}
@@ -643,12 +644,12 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,fon
       </div>
     </nav>
     <div className="bottom-nav">
-      {visibleTabs.map(t=>{const active=view===t.id;return <button key={t.id} onClick={()=>nav(t.id)} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"10px 2px 8px",gap:3,color:active?"var(--amber)":"var(--t3)",transition:"color .15s",borderTop:active?"2px solid var(--amber)":"2px solid transparent",fontFamily:"'DM Sans',sans-serif",minWidth:0}}>
-        <span style={{fontSize:16,lineHeight:1}}>{t.icon}</span>
-        <span style={{fontSize:9,fontWeight:active?600:500,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{t.l}</span>
+      {visibleTabs.map(t=>{const active=view===t.id;return <button key={t.id} onClick={()=>nav(t.id)} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"12px 2px 10px",gap:4,color:active?"var(--amber)":"var(--t3)",transition:"color .15s",borderTop:active?"2px solid var(--amber)":"2px solid transparent",fontFamily:"'DM Sans',sans-serif",minWidth:0}}>
+        <span style={{fontSize:18,lineHeight:1}}>{t.icon}</span>
+        <span style={{fontSize:11,fontWeight:active?700:600,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{t.l}</span>
       </button>;})}
-      {authUser&&<button onClick={onAdmin} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"10px 2px 8px",gap:3,color:"var(--t3)",fontFamily:"'DM Sans',sans-serif",minWidth:0,borderTop:"2px solid transparent"}}>
-        <span style={{fontSize:16,lineHeight:1}}>≡</span><span style={{fontSize:9,lineHeight:1}}>Menu</span>
+      {authUser&&<button onClick={onAdmin} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"12px 2px 10px",gap:4,color:"var(--t3)",fontFamily:"'DM Sans',sans-serif",minWidth:0,borderTop:"2px solid transparent"}}>
+        <span style={{fontSize:18,lineHeight:1}}>≡</span><span style={{fontSize:11,fontWeight:600,lineHeight:1}}>Menu</span>
       </button>}
     </div>
   </>;
@@ -671,7 +672,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
           api.get(`/api/inspections?limit=200`),
           api.get(`/api/issues?status=open&limit=200`),
         ]);
-        setRosterToday(rosterData[dn]||[]);
+        setRosterToday(assignmentSlots(rosterData,dn));
         const wkCount=inspData.filter(i=>wkKey(new Date(i.start_time))===wk).length;
         setStats({open:issuesData.length,wkInsp:wkCount});
       }catch(e){console.warn("Home load error:",e);}
@@ -709,7 +710,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
           {l:"Open Issues",v:stats.open,c:stats.open>0?"var(--red)":"var(--green)"},
           {l:"Inspections (Wk)",v:stats.wkInsp,c:"var(--blue)"},
           {l:"Zones",v:zones.length,c:"var(--cyan)"},
-          {l:"Today's Slots",v:rosterToday.length,c:"var(--purple)"},
+          {l:"Week Slots",v:rosterToday.length,c:"var(--purple)"},
         ].map(s=><div key={s.l} style={C.card({padding:"13px 15px"})}>
           <div style={{fontSize:24,fontWeight:600,color:s.c,fontFamily:"'DM Mono',monospace",marginBottom:3}}>{s.v}</div>
           <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".05em"}}>{s.l}</Mono>
@@ -724,8 +725,8 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
             <Mono size={12}>{authUser.role.toUpperCase()}</Mono>
           </div>
           {mySlots.length
-            ?<span style={{fontSize:12,fontWeight:600,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"4px 10px",borderRadius:20}}>✓ Assigned Today</span>
-            :<span style={{fontSize:12,fontWeight:600,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"4px 10px",borderRadius:20}}>No assignment today</span>}
+            ?<span style={{fontSize:13,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"5px 11px",borderRadius:20}}>✓ Assigned This Week</span>
+            :<span style={{fontSize:13,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"5px 11px",borderRadius:20}}>No assignment this week</span>}
         </div>
         {mySlots.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
           {mySlots.map((s,i)=>{
@@ -741,7 +742,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       </div>}
 
       {rosterToday.length>0&&<div style={C.card({marginBottom:14})}>
-        <div style={{fontWeight:600,fontSize:15,color:"var(--t1)",marginBottom:12}}>Today's Roster <Mono size={11} style={{marginLeft:6,background:"var(--surf)",padding:"2px 7px",borderRadius:20,textTransform:"uppercase"}}>{dn} WK{String(week).padStart(2,"0")}</Mono></div>
+        <div style={{fontWeight:700,fontSize:17,color:"var(--t1)",marginBottom:12}}>This Week's Roster <Mono size={12} style={{marginLeft:6,background:"var(--surf)",padding:"3px 8px",borderRadius:20,textTransform:"uppercase"}}>WK{String(week).padStart(2,"0")}</Mono></div>
         <div style={{display:"flex",flexDirection:"column",gap:7}}>
           {rosterToday.map((s,i)=>{
             const z=zones.find(z=>z.id===s.zoneId);
@@ -799,37 +800,6 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     try{
       const endTime=new Date().toISOString();
       await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
-
-      // ── Email report ─────────────────────────────────────────────────────
-      // Fetch full detail (with items + media) to build the email body
-      try{
-        const fullRec=await api.get(`/api/inspections/${activeInsp.id}`);
-        const emailContent=await buildEmailContent(fullRec,users,zones);
-        const inspector=users.find(u=>u.id===authUser.id);
-        const subj=`InspectPro Report – ${inspector?.name||authUser.name} – ${fD(endTime)}`;
-        const targets=[];
-        if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj});
-        users.filter(u=>isManagerRole(u.role)&&u.email?.trim()).forEach(m=>{
-          if(!targets.find(t=>t.email===m.email.trim()))
-            targets.push({email:m.email.trim(),name:m.name,subj:`[InspectPro] ${subj}`});
-        });
-        if(targets.length>0){
-          const cfg=ejConfig||{};
-          await Promise.allSettled(targets.map(t=>sendEmail(t.email,t.name,t.subj,emailContent,cfg)));
-        }
-        // ── Telegram notification ───────────────────────────────────────────
-        const flagCount=(fullRec.items||[]).filter(i=>i.status==="flagged").length;
-        const okCount=(fullRec.items||[]).filter(i=>i.status==="ok").length;
-        const flagLines=(fullRec.items||[]).filter(i=>i.status==="flagged")
-          .map(i=>`• ${i.label}${i.observation?" – "+i.observation:""}`).join("\n");
-        const tgBody=`Inspector: <b>${inspector?.name||authUser.name}</b>\nZone: <b>${fullRec.zone_id} · ${fullRec.zone_name}</b>\nDate: ${fD(endTime)}\nOK: ${okCount} · Flagged: <b>${flagCount}</b>${flagCount>0?"\n\n⚠ Flagged:\n"+flagLines:"\n\n✓ All clear"}`;
-        if(tgConfig?.tgBotToken&&tgConfig?.tgChatId){
-          notifyTelegram("InspectPro – Inspection Submitted",tgBody,tgConfig).catch(()=>{});
-        }
-      }catch(notifyErr){
-        console.warn("Notification failed (inspection still saved):",notifyErr.message);
-      }
-      // ────────────────────────────────────────────────────────────────────
       setActiveInsp(null);setStep("select");
     }catch(e){setErr("Submit failed: "+e.message);}
     setSending(false);
@@ -860,7 +830,7 @@ function SelectStep({zones,users,authUser,today,onStart}){
     api.get(`/api/roster?week=${wk}`).then(d=>setRoster(d)).catch(()=>{}).finally(()=>setLoading(false));
   },[wk]);
 
-  const todaySlots=roster[dn]||[];
+  const todaySlots=assignmentSlots(roster,dn);
   const mySlots=todaySlots.filter(s=>(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
 
   return <div style={{maxWidth:580,margin:"0 auto"}} className="fu">
@@ -873,20 +843,20 @@ function SelectStep({zones,users,authUser,today,onStart}){
     {loading?<div style={{textAlign:"center",padding:"24px"}}><Spinner/></div>:
       mySlots.length>0
         ?<div style={C.card({marginBottom:14,border:"1px solid var(--green)33"})}>
-          <div style={{fontSize:13,fontWeight:600,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"3px 10px",borderRadius:20,display:"inline-block",marginBottom:12}}>✓ Assigned Today</div>
+          <div style={{fontSize:14,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"5px 12px",borderRadius:20,display:"inline-block",marginBottom:12}}>✓ Assigned This Week</div>
           {mySlots.map((s,i)=>{
             const z=zones.find(z=>z.id===s.zoneId);
             return <div key={i} style={{background:"var(--surf)",borderRadius:9,padding:"12px 14px",display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
               <Mono size={13} color="var(--blue)" style={{background:"var(--bbg)",padding:"4px 9px",borderRadius:6,flexShrink:0}}>{s.zoneId}</Mono>
               <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{z?.name}</div>
               <Mono size={11} color="var(--t3)">{z?.items?.length||0} checklist items</Mono></div>
-              <button onClick={()=>onStart(s.zoneId)} style={C.btn("pri",{padding:"9px 18px",fontSize:14})}>Start →</button>
+              <button onClick={()=>onStart(s.zoneId)} style={C.btn("pri",{padding:"11px 20px",fontSize:16})}>Start →</button>
             </div>;
           })}
         </div>
         :<div style={{...C.card({marginBottom:14})}}>
-          <span style={{fontSize:13,fontWeight:600,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"3px 10px",borderRadius:20,display:"inline-block",marginBottom:8}}>No Assignment Today</span>
-          <p style={{fontSize:13,color:"var(--t3)",marginTop:4}}>You can still inspect any zone below.</p>
+          <span style={{fontSize:14,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"5px 12px",borderRadius:20,display:"inline-block",marginBottom:8}}>No Assignment This Week</span>
+          <p style={{fontSize:14,color:"var(--t3)",marginTop:4,lineHeight:1.5}}>You can still inspect any zone below.</p>
         </div>
     }
     <div style={C.card({background:"var(--card2)"})}>
@@ -1065,7 +1035,7 @@ function SummaryStep({inspection,users,zones,onSubmit,sending}){
     <button onClick={onSubmit} disabled={sending} style={{...C.btn("pri",{width:"100%",padding:"13px",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:8}),opacity:sending?0.6:1}}>
       {sending?<><Spinner/>Submitting…</>:"📤 Submit Report"}
     </button>
-    <p style={{fontSize:12,color:"var(--t3)",textAlign:"center",marginTop:7}}>Flagged items auto-added to Tracker. Email sent to managers.</p>
+    <p style={{fontSize:13,color:"var(--t3)",textAlign:"center",marginTop:8,lineHeight:1.5}}>Report emails are sent after submission. Flagged observations create Tracker items and trigger Telegram alerts.</p>
   </div>;
 }
 
@@ -1274,18 +1244,27 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
 function RosterView({users,zones,authUser,today}){
   const [cur,setCur]=useState(today);
   const [rosterData,setRosterData]=useState({});
+  const [completed,setCompleted]=useState({});
   const [loading,setLoading]=useState(true);
   const [editCell,setEditCell]=useState(null);
   const [ef,setEf]=useState({inspIds:[],supIds:[],zoneId:""});
   const [showAutoPlan,setShowAutoPlan]=useState(false);
   const [pickedInspector,setPickedInspector]=useState("");
   const canEdit=canManageOps(authUser);
+  const people=rosterPeople(users);
+  const viewDays=["Week"];
   const wk=wkKey(cur);const{week,year}=isoWk(cur);const monday=getMon(cur);
   const dayDate=i=>{const d=new Date(monday);d.setDate(d.getDate()+i);return d;};
 
   const load=useCallback(async()=>{
     setLoading(true);
-    try{const d=await api.get(`/api/roster?week=${wk}`);setRosterData(d);}
+    try{
+      const [d,insp]=await Promise.all([api.get(`/api/roster?week=${wk}`),api.get(`/api/inspections?limit=300`)]);
+      setRosterData(d);
+      const done={};
+      insp.filter(i=>i.end_time&&wkKey(new Date(i.start_time))===wk).forEach(i=>{done[completionKey(i.user_id,i.zone_id)]=i;});
+      setCompleted(done);
+    }
     catch(e){console.warn(e);}
     setLoading(false);
   },[wk]);
@@ -1297,7 +1276,7 @@ function RosterView({users,zones,authUser,today}){
     if(!editCell||!ef.zoneId)return;
     // Build full week slots: existing + new/edited
     const allSlots=[];
-    for(const day of DAYS){
+    for(const day of viewDays){
       for(const s of (rosterData[day]||[])){
         if(editCell.slotId&&s.id===editCell.slotId)continue; // skip being edited
         allSlots.push({day,zoneId:s.zoneId,inspectorIds:s.inspectorIds||[],supervisorIds:s.supervisorIds||[]});
@@ -1318,7 +1297,7 @@ function RosterView({users,zones,authUser,today}){
 
   const deleteSlot=async(slotId)=>{
     const allSlots=[];
-    for(const day of DAYS){
+    for(const day of viewDays){
       for(const s of (rosterData[day]||[])){
         if(s.id===slotId)continue;
         allSlots.push({day,zoneId:s.zoneId,inspectorIds:s.inspectorIds||[],supervisorIds:s.supervisorIds||[]});
@@ -1331,7 +1310,7 @@ function RosterView({users,zones,authUser,today}){
   const quickAssign=async(day,zoneId,inspectorId=pickedInspector)=>{
     if(!canEdit||!inspectorId)return;
     const allSlots=[];
-    for(const d of DAYS){
+    for(const d of viewDays){
       for(const s of (rosterData[d]||[])){
         if(d===day&&s.zoneId===zoneId)continue;
         allSlots.push({day:d,zoneId:s.zoneId,inspectorIds:s.inspectorIds||[],supervisorIds:s.supervisorIds||[]});
@@ -1362,31 +1341,31 @@ function RosterView({users,zones,authUser,today}){
     {!canEdit&&<div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:8,padding:"9px 14px",marginBottom:14,fontSize:14,color:"var(--amber)"}}>👁 View-only. Managers can edit.</div>}
     {canEdit&&<div style={{...C.card({padding:"10px 12px",marginBottom:14,background:"var(--card2)"}),display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
       <Mono size={12} color="var(--t3)">Assign</Mono>
-      {users.filter(u=>u.role==="inspector").map(u=><button key={u.id}
+      {people.map(u=><button key={u.id}
         draggable
         onDragStart={e=>e.dataTransfer.setData("text/plain",u.id)}
         onClick={()=>setPickedInspector(id=>id===u.id?"":u.id)}
-        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${pickedInspector===u.id?"var(--blue)":"var(--bd)"}`,background:pickedInspector===u.id?"var(--bbg)":"var(--surf)",borderRadius:20,padding:"5px 10px",cursor:"grab",color:"var(--t1)",fontWeight:600,fontSize:13}}>
-        <Avatar user={u} size={20}/>{u.name.split(" ")[0]}
+        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${pickedInspector===u.id?"var(--blue)":"var(--bd)"}`,background:pickedInspector===u.id?"var(--bbg)":"var(--surf)",borderRadius:20,padding:"7px 12px",cursor:"grab",color:"var(--t1)",fontWeight:700,fontSize:14}}>
+        <Avatar user={u} size={24}/>{u.name.split(" ")[0]}
       </button>)}
-      <Mono size={11} color="var(--t3)">Click a person, then click a cell. Drag works too.</Mono>
+      <Mono size={12} color="var(--t3)">Click a person, then click a zone. Drag works too on desktop.</Mono>
     </div>}
     {loading?<div style={{textAlign:"center",padding:"48px"}}><Spinner size={24}/></div>:
       <div style={{overflowX:"auto",borderRadius:12,border:"1px solid var(--bd)"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
           <thead><tr>
             <th style={{...thS,textAlign:"left",padding:"8px 12px",width:160}}>Zone</th>
-            {DAYS.map((d,i)=>{const dd=dayDate(i);const isT=dd.toDateString()===today.toDateString();
+            {viewDays.map((d,i)=>{const isT=wkKey(today)===wk;
               return <th key={d} style={{...thS,color:isT?"var(--amber)":"var(--t2)",background:isT?"var(--abg)":thS.background}}>
-                {d}<br/><span style={{fontWeight:400,fontSize:11}}>{fS(dd)}</span>
+                Assigned This Week<br/><span style={{fontWeight:500,fontSize:12}}>complete any working day</span>
               </th>;})}
           </tr></thead>
           <tbody>{zones.map(zone=><tr key={zone.id}>
             <td style={{...tdS,background:"var(--card2)"}}>
               <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"2px 7px",borderRadius:4,display:"inline-block",marginBottom:4}}>{zone.id}</Mono>
-              <div style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{zone.name}</div>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--t1)"}}>{zone.name}</div>
             </td>
-            {DAYS.map((day,di)=>{const dd=dayDate(di);const isT=dd.toDateString()===today.toDateString();
+            {viewDays.map((day,di)=>{const isT=wkKey(today)===wk;
               const slots=getSlotsForZoneDay(zone.id,day);
               return <td key={day}
                 onClick={()=>quickAssign(day,zone.id)}
@@ -1398,7 +1377,10 @@ function RosterView({users,zones,authUser,today}){
                     const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
                     return <div key={s.id} style={{background:"var(--surf)",borderRadius:6,padding:"5px 7px",border:"1px solid var(--bd2)"}}>
                       {insps.map((u,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-                        <Avatar user={u} size={20}/><span style={{fontSize:11,fontWeight:600,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+                        <Avatar user={u} size={28}/><span style={{fontSize:15,fontWeight:700,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+                        {completed[completionKey(u.id,zone.id)]
+                          ?<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"3px 8px",borderRadius:20}}>Done</span>
+                          :<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"3px 8px",borderRadius:20}}>Due</span>}
                       </div>)}
                       {canEdit&&<div style={{display:"flex",gap:4,marginTop:2}}>
                         <button onClick={e=>{e.stopPropagation();setEf({inspIds:[...(s.inspectorIds||[])],supIds:[...(s.supervisorIds||[])],zoneId:s.zoneId});setEditCell({day,slotId:s.id});}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--t3)",padding:"1px 3px"}}>Edit ✏️</button>
@@ -1422,7 +1404,7 @@ function RosterView({users,zones,authUser,today}){
       </select>
       <Lbl>Inspector(s)</Lbl>
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
-        {users.filter(u=>u.role==="inspector").map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:ef.inspIds.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${ef.inspIds.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
+        {people.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:ef.inspIds.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${ef.inspIds.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
           <input type="checkbox" checked={ef.inspIds.includes(u.id)} onChange={()=>setEf(f=>({...f,inspIds:toggleId(f.inspIds,u.id)}))} style={{accentColor:"var(--blue)"}}/>
           <Avatar user={u} size={18}/><span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
         </label>)}
@@ -1529,6 +1511,9 @@ function YearPlanView({users,zones,today,authUser}){
 // ── REPORTS VIEW ──────────────────────────────────────────────────────────────
 function ReportsView({users,zones,authUser}){
   const [inspections,setInspections]=useState([]);
+  const [reportMonth,setReportMonth]=useState("2026-03");
+  const [monthly,setMonthly]=useState(null);
+  const [monthlyLoading,setMonthlyLoading]=useState(false);
   const [loading,setLoading]=useState(true);
   const [sel,setSel]=useState(null);
   const [selDetail,setSelDetail]=useState(null);
@@ -1578,19 +1563,80 @@ function ReportsView({users,zones,authUser}){
     setResending(null);
   };
 
+  const loadMonthly=async()=>{
+    setMonthlyLoading(true);setErr("");
+    try{setMonthly(await api.get(`/api/inspections/reports/monthly?month=${reportMonth}`));}
+    catch(e){setErr(e.message);}
+    setMonthlyLoading(false);
+  };
+  const printMonthly=()=>{
+    if(!monthly)return;
+    const win=window.open("","_blank");
+    const openIssues=(monthly.issues||[]).filter(i=>i.status!=="closed").length;
+    const closedIssues=(monthly.issues||[]).filter(i=>i.status==="closed").length;
+    const issueRows=(monthly.issues||[]).map(i=>`
+      <tr>
+        <td>${i.zone_id} · ${i.zone_name}</td>
+        <td>${i.item_label}<br/><span>${i.observation||""}</span></td>
+        <td><b class="${i.status==="closed"?"ok":"warn"}">${i.status}</b></td>
+      </tr>`).join("");
+    const inspRows=(monthly.inspections||[]).map(i=>`
+      <tr><td>${fD(i.start_time)}</td><td>${i.zone_id} · ${i.zone_name}</td><td>${i.user_name}</td><td>${i.ok_count}/${i.total_items}</td><td>${i.flag_count}</td></tr>
+    `).join("");
+    const evidence=(monthly.issues||[]).flatMap(i=>(i.media||[]).map(m=>({issue:i,url:m.thumbnail_url||m.url,type:m.type}))).slice(0,8);
+    win.document.write(`<!doctype html><html><head><title>InspectPro Monthly Report ${monthly.month}</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:36px;line-height:1.45}
+        h1{font-size:30px;margin:0 0 4px} h2{font-size:18px;margin:26px 0 10px;color:#334155}
+        .sub{color:#64748b;margin-bottom:22px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+        .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:14px}.num{font-size:28px;font-weight:800}
+        table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{border-bottom:1px solid #e2e8f0;text-align:left;padding:8px;vertical-align:top}th{background:#f8fafc;color:#475569}
+        .ok{color:#059669}.warn{color:#dc2626}.evidence{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.evidence img{width:100%;height:110px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0}
+        @media print{body{margin:22mm}.no-print{display:none}.card{break-inside:avoid}}
+      </style></head><body>
+      <button class="no-print" onclick="window.print()" style="position:fixed;right:24px;top:18px;padding:10px 16px;border:0;border-radius:10px;background:#f59e0b;color:white;font-weight:700;">Save as PDF</button>
+      <h1>InspectPro Monthly Management Report</h1><div class="sub">${monthly.month} · Generated ${fD(new Date())}</div>
+      <div class="grid">
+        <div class="card"><div class="num">${monthly.summary.inspections}</div><div>Completed inspections</div></div>
+        <div class="card"><div class="num">${monthly.summary.zones_covered}</div><div>Zones covered</div></div>
+        <div class="card"><div class="num">${monthly.summary.flagged_items}</div><div>Flagged checks</div></div>
+        <div class="card"><div class="num">${openIssues}</div><div>Open issues</div></div>
+      </div>
+      <p><b>Management assurance:</b> ${monthly.summary.inspections} inspections completed, ${closedIssues} issue(s) closed, and ${openIssues} open issue(s) actively visible in the tracker.</p>
+      <h2>Inspection Completion Log</h2><table><thead><tr><th>Date</th><th>Zone</th><th>Inspector</th><th>OK</th><th>Flags</th></tr></thead><tbody>${inspRows}</tbody></table>
+      <h2>Issue Tracker Summary</h2><table><thead><tr><th>Zone</th><th>Observation</th><th>Status</th></tr></thead><tbody>${issueRows||"<tr><td colspan='3'>No issues raised.</td></tr>"}</tbody></table>
+      ${evidence.length?`<h2>Evidence Gallery</h2><div class="evidence">${evidence.map(e=>`<div><img src="${e.url}"><div style="font-size:11px;color:#64748b;margin-top:4px">${e.issue.zone_id} · ${e.issue.item_label}</div></div>`).join("")}</div>`:""}
+      </body></html>`);
+    win.document.close();
+  };
+
   if(loading) return <div style={{textAlign:"center",padding:"48px"}}><Spinner size={24}/></div>;
-  if(submitted.length===0) return <div className="fu" style={{textAlign:"center",padding:"60px 20px"}}>
-    <div style={{fontSize:36,marginBottom:14}}>📋</div>
-    <div style={{fontWeight:600,color:"var(--t1)",fontSize:17,marginBottom:6}}>No reports yet</div>
-    <p style={{color:"var(--t2)",fontSize:14}}>Submitted inspections will appear here.</p>
-  </div>;
 
   return <div className="fu">
     <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>Inspection Reports</h1>
     <p style={{color:"var(--t2)",fontSize:14,marginBottom:18}}>{submitted.length} submitted</p>
     <ErrBox msg={err}/>
+    {canManageOps(authUser)&&<div style={C.card({marginBottom:14,background:"var(--card2)"})}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+        <div><div style={{fontWeight:700,color:"var(--t1)",fontSize:17}}>Monthly Management Report</div><p style={{fontSize:14,color:"var(--t2)",marginTop:3}}>Boss-friendly PDF view with completion, flags, tracker status and evidence.</p></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={C.inp({width:150})}/>
+          <button onClick={loadMonthly} style={C.btn("sec",{padding:"9px 14px"})}>{monthlyLoading?<><Spinner size={13}/> Loading</>:"Generate"}</button>
+          <button onClick={printMonthly} disabled={!monthly} style={{...C.btn("pri",{padding:"9px 14px"}),opacity:monthly?1:.35}}>PDF</button>
+        </div>
+      </div>
+      {monthly&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginTop:12}}>
+        {[{l:"Inspections",v:monthly.summary.inspections},{l:"Zones",v:monthly.summary.zones_covered},{l:"Flags",v:monthly.summary.flagged_items},{l:"Issues",v:(monthly.issues||[]).length}].map(s=><div key={s.l} style={{background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:9,padding:"10px 12px"}}><div style={{fontSize:22,fontWeight:800,color:"var(--amber)"}}>{s.v}</div><Mono size={11}>{s.l}</Mono></div>)}
+      </div>}
+    </div>}
     {resendMsg&&<div style={{padding:"9px 13px",borderRadius:8,fontSize:13,marginBottom:12,background:resendMsg.startsWith("✅")?"var(--cl-bg)":"var(--ip-bg)",color:resendMsg.startsWith("✅")?"var(--cl-fg)":"var(--ip-fg)"}}>{resendMsg}</div>}
-    <div style={{display:"flex",flexDirection:"column",gap:0,border:"1px solid var(--bd)",borderRadius:12,overflow:"hidden"}}>
+    {submitted.length===0
+      ?<div style={{textAlign:"center",padding:"46px 20px",border:"1px solid var(--bd)",borderRadius:12,background:"var(--card)"}}>
+        <div style={{fontSize:36,marginBottom:14}}>📋</div>
+        <div style={{fontWeight:600,color:"var(--t1)",fontSize:17,marginBottom:6}}>No reports yet</div>
+        <p style={{color:"var(--t2)",fontSize:14}}>Submitted inspections will appear here.</p>
+      </div>
+      :<div style={{display:"flex",flexDirection:"column",gap:0,border:"1px solid var(--bd)",borderRadius:12,overflow:"hidden"}}>
       {submitted.map((rec,idx)=>{
         const isOpen=sel===rec.id;
         return <div key={rec.id} style={{borderBottom:idx<submitted.length-1?"1px solid var(--bd)":"none"}}>
@@ -1660,14 +1706,14 @@ function ReportsView({users,zones,authUser}){
           </div>}
         </div>;
       })}
-    </div>
+      </div>}
     {lightbox&&<Lightbox items={lightbox.items} startIdx={lightbox.idx} onClose={()=>setLightbox(null)}/> }
   </div>;
 }
 
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 const USER_COLORS=["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ec4899","#ef4444","#f97316","#84cc16","#14b8a6"];
-function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConfig,setTgConfig}){
+function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,setEjConfig,tgConfig,setTgConfig}){
   const isAdmin=canManageConfig(authUser);
   const [tab,setTab]=useState(isAdmin?"team":"pin");
   // PIN change — 3 steps: enter current → enter new → confirm → API call once
@@ -1716,6 +1762,30 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
     catch(e){alert("Reset failed: "+e.message);}
   };
 
+  // Zones + checklist
+  const [zoneDraft,setZoneDraft]=useState(()=>zones.map((z,i)=>({...z,displayOrder:z.displayOrder??i+1,items:[...(z.items||[])]})));
+  const [zoneMsg,setZoneMsg]=useState("");
+  const updateZone=(idx,fields)=>setZoneDraft(p=>p.map((z,i)=>i===idx?{...z,...fields}:z));
+  const updateCheck=(zIdx,itemIdx,value)=>setZoneDraft(p=>p.map((z,i)=>i===zIdx?{...z,items:z.items.map((it,j)=>j===itemIdx?value:it)}:z));
+  const moveCheck=(zIdx,itemIdx,dir)=>setZoneDraft(p=>p.map((z,i)=>{
+    if(i!==zIdx)return z;
+    const items=[...z.items];const next=itemIdx+dir;
+    if(next<0||next>=items.length)return z;
+    [items[itemIdx],items[next]]=[items[next],items[itemIdx]];
+    return {...z,items};
+  }));
+  const addZone=()=>setZoneDraft(p=>[...p,{id:`Z${String(p.length+1).padStart(2,"0")}`,name:"New Zone",items:["General condition OK"],displayOrder:p.length+1}]);
+  const saveZones=async()=>{
+    setZoneMsg("Saving zones…");
+    try{
+      const cleaned=zoneDraft.map((z,i)=>({...z,id:z.id.trim().toUpperCase(),name:z.name.trim(),displayOrder:i+1,items:(z.items||[]).map(x=>x.trim()).filter(Boolean)}));
+      await api.put("/api/config/zones",{zones:cleaned});
+      setZones(cleaned);
+      setZoneDraft(cleaned);
+      setZoneMsg("✅ Zones and checks saved.");
+    }catch(e){setZoneMsg("❌ "+e.message);}
+  };
+
   // Email
   const [ej,setEj]=useState({...ejConfig});const [ejMsg,setEjMsg]=useState("");
   const saveEj=async()=>{try{await api.put("/api/config",{ejPublicKey:ej.ejPublicKey,ejServiceId:ej.ejServiceId,ejTemplateId:ej.ejTemplateId});setEjConfig(ej);setEjMsg("✅ Saved.");}catch(e){setEjMsg("❌ "+e.message);}};
@@ -1749,6 +1819,7 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
       <button onClick={()=>setTab("pin")} style={C.btn(tab==="pin"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🔑 PIN</button>
       {isAdmin&&<>
         <button onClick={()=>setTab("team")} style={C.btn(tab==="team"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👥 Team</button>
+        <button onClick={()=>setTab("zones")} style={C.btn(tab==="zones"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🧭 Zones</button>
         <button onClick={()=>setTab("email")} style={C.btn(tab==="email"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>📧 Email</button>
         <button onClick={()=>setTab("telegram")} style={C.btn(tab==="telegram"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>✈️ Telegram</button>
       </>}
@@ -1808,6 +1879,33 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
       </div>}
     </div>}
 
+    {tab==="zones"&&<div>
+      {zoneMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,marginBottom:10,background:zoneMsg.startsWith("✅")?"var(--cl-bg)":"var(--ip-bg)",color:zoneMsg.startsWith("✅")?"var(--cl-fg)":"var(--ip-fg)"}}>{zoneMsg}</div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <span style={{fontWeight:700,color:"var(--t1)"}}>Zones and check sequence</span>
+        <button onClick={addZone} style={C.btn("sec",{padding:"7px 12px",fontSize:13})}>+ Zone</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:430,overflowY:"auto",paddingRight:4}}>
+        {zoneDraft.map((z,zIdx)=><div key={zIdx} style={{background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:10,padding:"12px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"82px 1fr",gap:8,marginBottom:10}}>
+            <input value={z.id} onChange={e=>updateZone(zIdx,{id:e.target.value})} style={C.inp({fontFamily:"'DM Mono',monospace",fontWeight:700})}/>
+            <input value={z.name} onChange={e=>updateZone(zIdx,{name:e.target.value})} style={C.inp({fontWeight:700})}/>
+          </div>
+          <Lbl>Checks, in order</Lbl>
+          {(z.items||[]).map((item,itemIdx)=><div key={itemIdx} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+            <Mono size={12} style={{width:22,textAlign:"right"}}>{itemIdx+1}</Mono>
+            <input value={item} onChange={e=>updateCheck(zIdx,itemIdx,e.target.value)} style={C.inp({flex:1})}/>
+            <button onClick={()=>moveCheck(zIdx,itemIdx,-1)} style={C.btn("ghost",{padding:"4px 8px",fontSize:12})}>↑</button>
+            <button onClick={()=>moveCheck(zIdx,itemIdx,1)} style={C.btn("ghost",{padding:"4px 8px",fontSize:12})}>↓</button>
+            <button onClick={()=>updateZone(zIdx,{items:z.items.filter((_,i)=>i!==itemIdx)})} style={C.btn("dng",{padding:"4px 8px",fontSize:12})}>✕</button>
+          </div>)}
+          <button onClick={()=>updateZone(zIdx,{items:[...(z.items||[]),"New check item"]})} style={C.btn("ghost",{padding:"7px 10px",fontSize:13,marginTop:4})}>+ Check</button>
+        </div>)}
+      </div>
+      <button onClick={saveZones} style={C.btn("pri",{width:"100%",marginTop:12,padding:"11px"})}>Save Zones</button>
+      <p style={{fontSize:12,color:"var(--t3)",marginTop:8,lineHeight:1.5}}>Changes apply to future inspections. Existing submitted reports keep their original checklist records.</p>
+    </div>}
+
     {tab==="email"&&<div style={{display:"flex",flexDirection:"column",gap:11}}>
       <div><Lbl>EmailJS Public Key</Lbl><input value={ej.ejPublicKey||""} onChange={e=>setEj(c=>({...c,ejPublicKey:e.target.value.trim()}))} style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
       <div><Lbl>Service ID</Lbl><input value={ej.ejServiceId||""} onChange={e=>setEj(c=>({...c,ejServiceId:e.target.value.trim()}))} style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
@@ -1839,7 +1937,7 @@ function App(){
   const [users,setUsers]=useState([]);
   const [zones,setZones]=useState([]);
   const [theme,setTheme]=useState(saved?.theme||"dark");
-  const [fontScale,setFontScale]=useState(saved?.fontScale||1.0);
+  const [fontScale,setFontScale]=useState(saved?.fontScale||1.08);
   const [view,setView]=useState("home");
   const [showLogin,setShowLogin]=useState(false);
   const [showAdmin,setShowAdmin]=useState(false);
@@ -1852,7 +1950,7 @@ function App(){
   // Persist prefs
   useEffect(()=>{ LS.save("ip_v4_prefs",{theme,fontScale}); },[theme,fontScale]);
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",theme); },[theme]);
-  useEffect(()=>{ document.documentElement.style.fontSize=`${fontScale*16}px`; },[fontScale]);
+  useEffect(()=>{ document.documentElement.style.fontSize=`${fontScale*17}px`; },[fontScale]);
   useEffect(()=>{ if(authUser) LS.save("ip_v4_user",authUser); else localStorage.removeItem("ip_v4_user"); },[authUser]);
 
   // Online/offline detection
@@ -1903,7 +2001,7 @@ function App(){
     </div>
     {!authUser&&<div onClick={()=>setShowLogin(true)} style={{position:"fixed",bottom:"calc(72px + env(safe-area-inset-bottom,0px))",right:18,background:"var(--amber)",color:"#fff",fontWeight:600,fontSize:14,padding:"11px 20px",borderRadius:40,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:7,zIndex:100}}>🔑 Log In</div>}
     {showLogin&&<LoginModal users={users} onLogin={handleLogin} onClose={()=>setShowLogin(false)}/>}
-    {showAdmin&&authUser&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
+    {showAdmin&&authUser&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} zones={zones} setZones={setZones} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
   </div>;
 }
 
