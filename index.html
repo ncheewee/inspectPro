@@ -118,25 +118,29 @@ const api = {
   put:    (path,body,opts)=>api.req("PUT",path,body,opts),
   patch:  (path,body,opts)=>api.req("PATCH",path,body,opts),
   delete: (path,opts)=>api.req("DELETE",path,null,opts),
+  async uploadForm(path, form, opts={}){
+    const headers = {};
+    const token = this._token();
+    if(token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers,
+      body: form,
+      signal: opts.signal,
+    });
+    const text = await res.text();
+    const data = text ? (()=>{try{return JSON.parse(text);}catch{return {error:text};}})() : {};
+    if(!res.ok) throw Object.assign(new Error(data.error||"Upload failed"), {status:res.status,data});
+    return data;
+  },
 };
 
 // ── IMAGEKIT UPLOAD ───────────────────────────────────────────────────────────
 async function uploadToImageKit(file, folder="inspectpro"){
-  // 1. Get signed auth from our backend
-  const auth = await api.post("/api/media/sign");
-  // 2. Build multipart form for ImageKit
   const form = new FormData();
   form.append("file", file);
-  form.append("fileName", file.name||`upload_${Date.now()}`);
   form.append("folder", folder);
-  form.append("publicKey", auth.publicKey);
-  form.append("signature", auth.signature);
-  form.append("expire", String(auth.expire));
-  form.append("token", auth.token);
-  // 3. Upload directly to ImageKit
-  const res = await fetch("https://upload.imagekit.io/api/v2/files/upload",{method:"POST",body:form});
-  if(!res.ok){const e=await res.text();throw new Error("ImageKit upload failed: "+e);}
-  return await res.json(); // {fileId, url, thumbnailUrl, size, name, ...}
+  return await api.uploadForm("/api/media/upload", form); // {fileId, url, thumbnailUrl, size, name, ...}
 }
 
 
