@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>InspectPro v4</title>
+<title>InspectPro</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
 :root{
@@ -66,8 +66,12 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v4";
+const VERSION = "v5";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const isAdminRole = role => role === "admin";
+const isManagerRole = role => role === "manager" || role === "admin";
+const canManageConfig = user => isAdminRole(user?.role);
+const canManageOps = user => isManagerRole(user?.role);
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 const isoWk = d=>{const dd=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=dd.getUTCDay()||7;dd.setUTCDate(dd.getUTCDate()+4-day);const y1=new Date(Date.UTC(dd.getUTCFullYear(),0,1));return{week:Math.ceil(((dd-y1)/86400000+1)/7),year:dd.getUTCFullYear()};};
@@ -353,7 +357,7 @@ function Lightbox({items, startIdx=0, onClose}) {
 // ── AUTO-PLAN MODAL ───────────────────────────────────────────────────────────
 function AutoPlanModal({users,zones,onClose,today,onApplied}) {
   const inspectors = users.filter(u=>u.role==="inspector");
-  const managers   = users.filter(u=>u.role==="manager");
+  const managers   = users.filter(u=>isManagerRole(u.role));
   const [startDate,setStartDate] = useState(()=>{
     const d=getMon(today);d.setDate(d.getDate()+7);return d.toISOString().split("T")[0];
   });
@@ -596,12 +600,10 @@ const TABS=[
   {id:"inspect", l:"Inspect", icon:"✓"},
   {id:"tracker", l:"Tracker", icon:"◈"},
   {id:"roster",  l:"Roster",  icon:"⊞"},
-  {id:"yearplan",l:"Year Plan",icon:"▦"},
-  {id:"reports", l:"Reports", icon:"📋",managerOnly:true},
+  {id:"reports", l:"Reports", icon:"📋",opsOnly:true},
 ];
 function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,fontScale,setFontScale}){
-  const isM=authUser?.role==="manager";
-  const visibleTabs=TABS.filter(t=>!t.managerOnly||isM);
+  const visibleTabs=TABS.filter(t=>!t.opsOnly||canManageOps(authUser));
   return <>
     <nav style={{background:"var(--surf)",borderBottom:"1px solid var(--bd)",position:"sticky",top:0,zIndex:200,boxShadow:"var(--shad)"}}>
       <div style={{maxWidth:1140,margin:"0 auto",padding:"0 12px",display:"flex",alignItems:"center",gap:6}}>
@@ -658,7 +660,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
   const [stats,setStats]=useState({open:0,wkInsp:0});
   const [loading,setLoading]=useState(true);
   const wk=wkKey(today),dn=dowN(today),{week}=isoWk(today);
-  const isM=authUser?.role==="manager";
+  const isOps=canManageOps(authUser);
 
   useEffect(()=>{
     async function load(){
@@ -676,20 +678,19 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       setLoading(false);
     }
     load();
-  },[wk,dn]);
+  },[wk,dn,authUser?.id,authUser?.role]);
 
   const mySlots=rosterToday.filter(s=>(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
 
   return <div className="fu">
-    {isM&&<div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:10,padding:"9px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+    {isOps&&<div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:10,padding:"9px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <span style={{width:7,height:7,borderRadius:"50%",background:"var(--amber)",animation:"pulse 1.5s infinite",display:"inline-block"}}/>
-        <span style={{fontWeight:600,fontSize:14,color:"var(--amber)"}}>Manager Mode</span>
+        <span style={{fontWeight:600,fontSize:14,color:"var(--amber)"}}>{isAdminRole(authUser?.role)?"Admin Mode":"Manager Mode"}</span>
         <Mono size={11} color="var(--t3)">Full access</Mono>
       </div>
       <div style={{display:"flex",gap:7}}>
         <button onClick={()=>nav("roster")} style={C.btn("sec",{padding:"5px 12px",fontSize:13})}>Edit Roster</button>
-        <button onClick={()=>nav("yearplan")} style={C.btn("sec",{padding:"5px 12px",fontSize:13})}>Year Plan</button>
       </div>
     </div>}
 
@@ -697,7 +698,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       <div>
         <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn} · Week {week}</Mono>
         <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>{today.getHours()<12?"Good Morning":"Good Afternoon"} 👋</h1>
-        <p style={{color:"var(--t2)",fontSize:15}}>{users.filter(u=>u.role==="inspector").length} inspectors · {users.filter(u=>u.role==="manager").length} managers · {zones.length} zones</p>
+        <p style={{color:"var(--t2)",fontSize:15}}>{users.filter(u=>u.role==="inspector").length} inspectors · {users.filter(u=>u.role==="manager").length} managers · {users.filter(u=>u.role==="admin").length} admins · {zones.length} zones</p>
       </div>
       {authUser&&<button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>}
     </div>
@@ -808,7 +809,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
         const subj=`InspectPro Report – ${inspector?.name||authUser.name} – ${fD(endTime)}`;
         const targets=[];
         if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj});
-        users.filter(u=>u.role==="manager"&&u.email?.trim()).forEach(m=>{
+        users.filter(u=>isManagerRole(u.role)&&u.email?.trim()).forEach(m=>{
           if(!targets.find(t=>t.email===m.email.trim()))
             targets.push({email:m.email.trim(),name:m.name,subj:`[InspectPro] ${subj}`});
         });
@@ -1277,7 +1278,8 @@ function RosterView({users,zones,authUser,today}){
   const [editCell,setEditCell]=useState(null);
   const [ef,setEf]=useState({inspIds:[],supIds:[],zoneId:""});
   const [showAutoPlan,setShowAutoPlan]=useState(false);
-  const isM=authUser?.role==="manager";
+  const [pickedInspector,setPickedInspector]=useState("");
+  const canEdit=canManageOps(authUser);
   const wk=wkKey(cur);const{week,year}=isoWk(cur);const monday=getMon(cur);
   const dayDate=i=>{const d=new Date(monday);d.setDate(d.getDate()+i);return d;};
 
@@ -1326,6 +1328,20 @@ function RosterView({users,zones,authUser,today}){
     catch(e){alert("Delete failed: "+e.message);}
   };
 
+  const quickAssign=async(day,zoneId,inspectorId=pickedInspector)=>{
+    if(!canEdit||!inspectorId)return;
+    const allSlots=[];
+    for(const d of DAYS){
+      for(const s of (rosterData[d]||[])){
+        if(d===day&&s.zoneId===zoneId)continue;
+        allSlots.push({day:d,zoneId:s.zoneId,inspectorIds:s.inspectorIds||[],supervisorIds:s.supervisorIds||[]});
+      }
+    }
+    allSlots.push({day,zoneId,inspectorIds:[inspectorId],supervisorIds:[]});
+    try{await api.put("/api/roster",{weekKey:wk,slots:allSlots});await load();}
+    catch(e){alert("Assign failed: "+e.message);}
+  };
+
   const toggleId=(arr,id)=>arr.includes(id)?arr.filter(x=>x!==id):[...arr,id];
   const thS={background:"var(--card2)",border:"1px solid var(--bd)",padding:"8px 10px",fontSize:13,fontWeight:600,color:"var(--t2)",textAlign:"center",whiteSpace:"nowrap"};
   const tdS={border:"1px solid var(--bd)",padding:"6px",verticalAlign:"top",minHeight:60};
@@ -1340,10 +1356,21 @@ function RosterView({users,zones,authUser,today}){
         <button onClick={()=>setCur(d=>{const dd=new Date(d);dd.setDate(dd.getDate()-7);return dd;})} style={C.btn("ghost",{padding:"7px 13px"})}>← Prev</button>
         <button onClick={()=>setCur(today)} style={C.btn("sec",{padding:"7px 11px"})}>Today</button>
         <button onClick={()=>setCur(d=>{const dd=new Date(d);dd.setDate(dd.getDate()+7);return dd;})} style={C.btn("ghost",{padding:"7px 13px"})}>Next →</button>
-        {isM&&<button onClick={()=>setShowAutoPlan(true)} style={C.btn("pri",{padding:"7px 13px",fontSize:13,display:"flex",alignItems:"center",gap:6})}>⚡ Auto-Plan</button>}
+        {canEdit&&<button onClick={()=>setShowAutoPlan(true)} style={C.btn("pri",{padding:"7px 13px",fontSize:13,display:"flex",alignItems:"center",gap:6})}>⚡ Auto-Plan</button>}
       </div>
     </div>
-    {!isM&&<div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:8,padding:"9px 14px",marginBottom:14,fontSize:14,color:"var(--amber)"}}>👁 View-only. Managers can edit.</div>}
+    {!canEdit&&<div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:8,padding:"9px 14px",marginBottom:14,fontSize:14,color:"var(--amber)"}}>👁 View-only. Managers can edit.</div>}
+    {canEdit&&<div style={{...C.card({padding:"10px 12px",marginBottom:14,background:"var(--card2)"}),display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <Mono size={12} color="var(--t3)">Assign</Mono>
+      {users.filter(u=>u.role==="inspector").map(u=><button key={u.id}
+        draggable
+        onDragStart={e=>e.dataTransfer.setData("text/plain",u.id)}
+        onClick={()=>setPickedInspector(id=>id===u.id?"":u.id)}
+        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${pickedInspector===u.id?"var(--blue)":"var(--bd)"}`,background:pickedInspector===u.id?"var(--bbg)":"var(--surf)",borderRadius:20,padding:"5px 10px",cursor:"grab",color:"var(--t1)",fontWeight:600,fontSize:13}}>
+        <Avatar user={u} size={20}/>{u.name.split(" ")[0]}
+      </button>)}
+      <Mono size={11} color="var(--t3)">Click a person, then click a cell. Drag works too.</Mono>
+    </div>}
     {loading?<div style={{textAlign:"center",padding:"48px"}}><Spinner size={24}/></div>:
       <div style={{overflowX:"auto",borderRadius:12,border:"1px solid var(--bd)"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
@@ -1361,7 +1388,11 @@ function RosterView({users,zones,authUser,today}){
             </td>
             {DAYS.map((day,di)=>{const dd=dayDate(di);const isT=dd.toDateString()===today.toDateString();
               const slots=getSlotsForZoneDay(zone.id,day);
-              return <td key={day} style={{...tdS,background:isT?"var(--abg)":"transparent",minWidth:110}}>
+              return <td key={day}
+                onClick={()=>quickAssign(day,zone.id)}
+                onDragOver={e=>canEdit&&e.preventDefault()}
+                onDrop={e=>{e.preventDefault();quickAssign(day,zone.id,e.dataTransfer.getData("text/plain"));}}
+                style={{...tdS,background:isT?"var(--abg)":pickedInspector&&canEdit?"var(--bbg)":"transparent",minWidth:110,cursor:canEdit&&pickedInspector?"copy":"default"}}>
                 <div style={{display:"flex",flexDirection:"column",gap:4}}>
                   {slots.map(s=>{
                     const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
@@ -1369,12 +1400,12 @@ function RosterView({users,zones,authUser,today}){
                       {insps.map((u,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
                         <Avatar user={u} size={20}/><span style={{fontSize:11,fontWeight:600,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
                       </div>)}
-                      {isM&&<div style={{display:"flex",gap:4,marginTop:2}}>
-                        <button onClick={()=>{setEf({inspIds:[...(s.inspectorIds||[])],supIds:[...(s.supervisorIds||[])],zoneId:s.zoneId});setEditCell({day,slotId:s.id});}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--t3)",padding:"1px 3px"}}>Edit ✏️</button>
-                        <button onClick={()=>deleteSlot(s.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--red)",padding:"1px 3px"}}>✕</button>
+                      {canEdit&&<div style={{display:"flex",gap:4,marginTop:2}}>
+                        <button onClick={e=>{e.stopPropagation();setEf({inspIds:[...(s.inspectorIds||[])],supIds:[...(s.supervisorIds||[])],zoneId:s.zoneId});setEditCell({day,slotId:s.id});}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--t3)",padding:"1px 3px"}}>Edit ✏️</button>
+                        <button onClick={e=>{e.stopPropagation();deleteSlot(s.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--red)",padding:"1px 3px"}}>✕</button>
                       </div>}
                     </div>;})}
-                  {isM&&<button onClick={()=>{setEf({inspIds:[],supIds:[],zoneId:zone.id});setEditCell({day,slotId:null});}} style={{background:"transparent",border:"1px dashed var(--bd2)",borderRadius:5,padding:"3px 0",color:"var(--t3)",cursor:"pointer",fontSize:11,width:"100%",textAlign:"center"}}>+</button>}
+                  {canEdit&&<button onClick={e=>{e.stopPropagation();setEf({inspIds:[],supIds:[],zoneId:zone.id});setEditCell({day,slotId:null});}} style={{background:"transparent",border:"1px dashed var(--bd2)",borderRadius:5,padding:"3px 0",color:"var(--t3)",cursor:"pointer",fontSize:11,width:"100%",textAlign:"center"}}>+</button>}
                 </div>
               </td>;
             })}
@@ -1399,7 +1430,7 @@ function RosterView({users,zones,authUser,today}){
       <Lbl>Supervisor (optional)</Lbl>
       <select value={ef.supIds[0]||""} onChange={e=>setEf(f=>({...f,supIds:e.target.value?[e.target.value]:[]}))} style={C.inp({marginBottom:16})}>
         <option value="">None</option>
-        {users.filter(u=>u.role==="manager").map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+        {users.filter(u=>isManagerRole(u.role)).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
       </select>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <button onClick={()=>setEditCell(null)} style={C.btn("ghost")}>Cancel</button>
@@ -1447,7 +1478,7 @@ function YearPlanView({users,zones,today,authUser}){
         <button onClick={()=>setYr(y=>y-1)} style={C.btn("ghost",{padding:"6px 11px",fontSize:13})}>← {yr-1}</button>
         <button onClick={()=>setYr(today.getFullYear())} style={C.btn("sec",{padding:"6px 10px",fontSize:13})}>This Year</button>
         <button onClick={()=>setYr(y=>y+1)} style={C.btn("ghost",{padding:"6px 11px",fontSize:13})}>{yr+1} →</button>
-        {authUser?.role==="manager"&&<button onClick={()=>setShowAutoPlan(true)} style={C.btn("pri",{padding:"6px 12px",fontSize:13})}>⚡ Auto-Plan</button>}
+        {canManageOps(authUser)&&<button onClick={()=>setShowAutoPlan(true)} style={C.btn("pri",{padding:"6px 12px",fontSize:13})}>⚡ Auto-Plan</button>}
       </div>
     </div>
     <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap"}}>
@@ -1496,7 +1527,7 @@ function YearPlanView({users,zones,today,authUser}){
 }
 
 // ── REPORTS VIEW ──────────────────────────────────────────────────────────────
-function ReportsView({users,zones}){
+function ReportsView({users,zones,authUser}){
   const [inspections,setInspections]=useState([]);
   const [loading,setLoading]=useState(true);
   const [sel,setSel]=useState(null);
@@ -1507,6 +1538,7 @@ function ReportsView({users,zones}){
   const [resendMsg,setResendMsg]=useState("");
   const [lightbox,setLightbox]=useState(null);
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
+  const submitted=inspections.filter(i=>i.report_sent&&i.end_time);
 
   useEffect(()=>{
     api.get("/api/inspections?limit=100")
@@ -1525,6 +1557,7 @@ function ReportsView({users,zones}){
   const resend=async(rec,e)=>{
     e.stopPropagation();
     if(!selDetail) return;
+    if(!window.confirm("Re-send this inspection report by email?"))return;
     setResending(rec.id);setResendMsg("");
     try{
       const cfg=await api.get("/api/config");
@@ -1533,7 +1566,7 @@ function ReportsView({users,zones}){
       const subj=`InspectPro Report – ${inspector?.name||rec.user_name} – ${fD(rec.start_time)}`;
       const targets=[];
       if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj});
-      users.filter(u=>u.role==="manager"&&u.email?.trim()).forEach(m=>{
+      users.filter(u=>isManagerRole(u.role)&&u.email?.trim()).forEach(m=>{
         if(!targets.find(t=>t.email===m.email.trim()))
           targets.push({email:m.email.trim(),name:m.name,subj:`[InspectPro] ${subj}`});
       });
@@ -1546,7 +1579,7 @@ function ReportsView({users,zones}){
   };
 
   if(loading) return <div style={{textAlign:"center",padding:"48px"}}><Spinner size={24}/></div>;
-  if(inspections.length===0) return <div className="fu" style={{textAlign:"center",padding:"60px 20px"}}>
+  if(submitted.length===0) return <div className="fu" style={{textAlign:"center",padding:"60px 20px"}}>
     <div style={{fontSize:36,marginBottom:14}}>📋</div>
     <div style={{fontWeight:600,color:"var(--t1)",fontSize:17,marginBottom:6}}>No reports yet</div>
     <p style={{color:"var(--t2)",fontSize:14}}>Submitted inspections will appear here.</p>
@@ -1554,13 +1587,13 @@ function ReportsView({users,zones}){
 
   return <div className="fu">
     <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>Inspection Reports</h1>
-    <p style={{color:"var(--t2)",fontSize:14,marginBottom:18}}>{inspections.length} submitted</p>
+    <p style={{color:"var(--t2)",fontSize:14,marginBottom:18}}>{submitted.length} submitted</p>
     <ErrBox msg={err}/>
     {resendMsg&&<div style={{padding:"9px 13px",borderRadius:8,fontSize:13,marginBottom:12,background:resendMsg.startsWith("✅")?"var(--cl-bg)":"var(--ip-bg)",color:resendMsg.startsWith("✅")?"var(--cl-fg)":"var(--ip-fg)"}}>{resendMsg}</div>}
     <div style={{display:"flex",flexDirection:"column",gap:0,border:"1px solid var(--bd)",borderRadius:12,overflow:"hidden"}}>
-      {inspections.map((rec,idx)=>{
+      {submitted.map((rec,idx)=>{
         const isOpen=sel===rec.id;
-        return <div key={rec.id} style={{borderBottom:idx<inspections.length-1?"1px solid var(--bd)":"none"}}>
+        return <div key={rec.id} style={{borderBottom:idx<submitted.length-1?"1px solid var(--bd)":"none"}}>
           <div onClick={()=>loadDetail(rec.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",cursor:"pointer",background:isOpen?"var(--card2)":"var(--card)",borderLeft:isOpen?"4px solid var(--blue)":"4px solid transparent",transition:"background .15s,border-color .15s"}}>
             <Avatar user={{initials:rec.initials,color:rec.color}} size={36}/>
             <div style={{flex:1,minWidth:0}}>
@@ -1580,11 +1613,11 @@ function ReportsView({users,zones}){
           {isOpen&&<div style={{background:"var(--surf)",borderTop:"1px solid var(--bd2)",padding:"20px 22px"}}>
             {loadingDetail?<div style={{textAlign:"center",padding:"24px"}}><Spinner size={20}/></div>:selDetail&&
               <div>
-                <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+                {canManageConfig(authUser)&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
                   <button onClick={e=>resend(rec,e)} disabled={!!resending} style={{...C.btn("sec",{padding:"7px 14px",fontSize:13,display:"flex",alignItems:"center",gap:6}),opacity:resending?0.5:1}}>
                     {resending===rec.id?<><Spinner size={13}/>Sending…</>:"📤 Re-send Email"}
                   </button>
-                </div>
+                </div>}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:16}}>
                   {[
                     {l:"Inspector",v:rec.user_name},
@@ -1635,8 +1668,8 @@ function ReportsView({users,zones}){
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 const USER_COLORS=["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ec4899","#ef4444","#f97316","#84cc16","#14b8a6"];
 function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConfig,setTgConfig}){
-  const isM=authUser?.role==="manager";
-  const [tab,setTab]=useState(isM?"team":"pin");
+  const isAdmin=canManageConfig(authUser);
+  const [tab,setTab]=useState(isAdmin?"team":"pin");
   // PIN change — 3 steps: enter current → enter new → confirm → API call once
   const [ps,setPs]=useState("old");
   const [oldPin,setOldPin]=useState("");
@@ -1686,20 +1719,35 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
   // Email
   const [ej,setEj]=useState({...ejConfig});const [ejMsg,setEjMsg]=useState("");
   const saveEj=async()=>{try{await api.put("/api/config",{ejPublicKey:ej.ejPublicKey,ejServiceId:ej.ejServiceId,ejTemplateId:ej.ejTemplateId});setEjConfig(ej);setEjMsg("✅ Saved.");}catch(e){setEjMsg("❌ "+e.message);}};
+  const testEj=async()=>{
+    const to=authUser.email?.trim();
+    if(!to){setEjMsg("⚠ Add an email address to your admin user first.");return;}
+    if(!window.confirm(`Send a test email to ${to}?`))return;
+    setEjMsg("Sending test email…");
+    const res=await sendEmail(to,authUser.name,"InspectPro test email",{plainText:"InspectPro EmailJS test message.",html:"<p>InspectPro EmailJS test message.</p>"},ej);
+    setEjMsg(res.ok?"✅ Test email sent.":`❌ Test email failed: ${res.err||"check config"}`);
+  };
 
   // Telegram
   const [tg,setTg]=useState({...tgConfig});const [tgMsg,setTgMsg]=useState("");
   const saveTg=async()=>{try{await api.put("/api/config",{tgBotToken:tg.tgBotToken,tgChatId:tg.tgChatId});setTgConfig(tg);setTgMsg("✅ Saved.");}catch(e){setTgMsg("❌ "+e.message);}};
+  const testTg=async()=>{
+    if(!tg.tgBotToken||!tg.tgChatId){setTgMsg("⚠ Bot token and chat ID are required.");return;}
+    if(!window.confirm("Send a test Telegram message to the configured chat?"))return;
+    setTgMsg("Sending test Telegram…");
+    const res=await notifyTelegram("InspectPro test",`Sent by ${authUser.name} from Admin settings.`,tg);
+    setTgMsg(res.ok?"✅ Test Telegram sent.":`❌ Test Telegram failed: ${res.err||"check config"}`);
+  };
 
   return <Modal onClose={onClose} title="Menu" maxW={540}>
     <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:16}}>
       <Avatar user={authUser} size={38}/>
       <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{authUser.name}</div><Mono size={12}>{authUser.role.toUpperCase()}</Mono></div>
-      {isM&&<span style={{fontSize:11,background:"var(--abg)",color:"var(--amber)",padding:"3px 8px",borderRadius:20,fontWeight:600}}>Manager</span>}
+      {isAdmin&&<span style={{fontSize:11,background:"var(--abg)",color:"var(--amber)",padding:"3px 8px",borderRadius:20,fontWeight:600}}>Admin</span>}
     </div>
     <div style={{display:"flex",gap:5,marginBottom:18,flexWrap:"wrap"}}>
       <button onClick={()=>setTab("pin")} style={C.btn(tab==="pin"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🔑 PIN</button>
-      {isM&&<>
+      {isAdmin&&<>
         <button onClick={()=>setTab("team")} style={C.btn(tab==="team"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👥 Team</button>
         <button onClick={()=>setTab("email")} style={C.btn(tab==="email"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>📧 Email</button>
         <button onClick={()=>setTab("telegram")} style={C.btn(tab==="telegram"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>✈️ Telegram</button>
@@ -1730,7 +1778,7 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
             <Lbl>Email</Lbl><input type="email" value={editingUser.email||""} onChange={e=>setEditingUser(p=>({...p,email:e.target.value}))} style={C.inp({marginBottom:8})}/>
             <Lbl>Role</Lbl>
             <select value={editingUser.role} onChange={e=>setEditingUser(p=>({...p,role:e.target.value}))} style={C.inp({marginBottom:8})}>
-              <option value="inspector">Inspector</option><option value="manager">Manager</option>
+              <option value="inspector">Inspector</option><option value="manager">Manager</option><option value="admin">Admin</option>
             </select>
             <Lbl>Colour</Lbl>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{USER_COLORS.map(c=><button key={c} onClick={()=>setEditingUser(p=>({...p,color:c}))} style={{width:24,height:24,borderRadius:"50%",background:c,border:editingUser.color===c?"3px solid var(--t1)":"2px solid transparent",cursor:"pointer"}}/>)}</div>
@@ -1753,7 +1801,7 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
         <Lbl>Name</Lbl><input value={newUser.name} onChange={e=>setNewUser(p=>({...p,name:e.target.value}))} placeholder="Full name" style={C.inp({marginBottom:8})}/>
         <Lbl>Email</Lbl><input type="email" value={newUser.email} onChange={e=>setNewUser(p=>({...p,email:e.target.value}))} placeholder="name@example.com" style={C.inp({marginBottom:8})}/>
         <Lbl>Role</Lbl>
-        <select value={newUser.role} onChange={e=>setNewUser(p=>({...p,role:e.target.value}))} style={C.inp({marginBottom:8})}><option value="inspector">Inspector</option><option value="manager">Manager</option></select>
+        <select value={newUser.role} onChange={e=>setNewUser(p=>({...p,role:e.target.value}))} style={C.inp({marginBottom:8})}><option value="inspector">Inspector</option><option value="manager">Manager</option><option value="admin">Admin</option></select>
         <Lbl>Colour</Lbl>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{USER_COLORS.map(c=><button key={c} onClick={()=>setNewUser(p=>({...p,color:c}))} style={{width:24,height:24,borderRadius:"50%",background:c,border:newUser.color===c?"3px solid var(--t1)":"2px solid transparent",cursor:"pointer"}}/>)}</div>
         <div style={{display:"flex",gap:7}}><button onClick={addUser} disabled={!newUser.name.trim()} style={{...C.btn("pri",{flex:1,padding:"9px"}),opacity:newUser.name.trim()?1:.35}}>Add</button><button onClick={()=>setAddingUser(false)} style={C.btn("ghost",{padding:"9px 12px"})}>Cancel</button></div>
@@ -1765,15 +1813,21 @@ function AdminPanel({authUser,users,setUsers,onClose,ejConfig,setEjConfig,tgConf
       <div><Lbl>Service ID</Lbl><input value={ej.ejServiceId||""} onChange={e=>setEj(c=>({...c,ejServiceId:e.target.value.trim()}))} style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
       <div><Lbl>Template ID</Lbl><input value={ej.ejTemplateId||""} onChange={e=>setEj(c=>({...c,ejTemplateId:e.target.value.trim()}))} style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
       {ejMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,background:ejMsg.startsWith("✅")?"var(--cl-bg)":"var(--op-bg)",color:ejMsg.startsWith("✅")?"var(--cl-fg)":"var(--op-fg)"}}>{ejMsg}</div>}
-      <button onClick={saveEj} style={C.btn("pri",{padding:"9px"})}>💾 Save to Server</button>
-      <p style={{fontSize:12,color:"var(--t3)"}}>Credentials stored securely on the server, not in the browser.</p>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={saveEj} style={C.btn("pri",{padding:"9px",flex:1})}>💾 Save</button>
+        <button onClick={testEj} style={C.btn("sec",{padding:"9px",flex:1})}>Send Test</button>
+      </div>
+      <p style={{fontSize:12,color:"var(--t3)"}}>Only admins can view or edit these settings.</p>
     </div>}
 
     {tab==="telegram"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
       <div><Lbl>Bot Token</Lbl><input value={tg.tgBotToken||""} onChange={e=>setTg(c=>({...c,tgBotToken:e.target.value.trim()}))} placeholder="1234567890:AABBccDDeeff..." style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
       <div><Lbl>Chat ID</Lbl><input value={tg.tgChatId||""} onChange={e=>setTg(c=>({...c,tgChatId:e.target.value.trim()}))} placeholder="-100xxxxxxxxxx" style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
       {tgMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,background:tgMsg.startsWith("✅")?"var(--cl-bg)":"var(--op-bg)",color:tgMsg.startsWith("✅")?"var(--cl-fg)":"var(--op-fg)"}}>{tgMsg}</div>}
-      <button onClick={saveTg} style={C.btn("pri",{padding:"9px"})}>💾 Save to Server</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={saveTg} style={C.btn("pri",{padding:"9px",flex:1})}>💾 Save</button>
+        <button onClick={testTg} style={C.btn("sec",{padding:"9px",flex:1})}>Send Test</button>
+      </div>
     </div>}
   </Modal>;
 }
@@ -1817,8 +1871,8 @@ function App(){
       }catch(e){
         setBootstrapErr("Cannot reach the API server. Check your connection or backend URL.");
       }
-      // Load config if manager
-      if(authUser?.role==="manager"){
+      // Load full notification config for admins only.
+      if(canManageConfig(authUser)){
         try{const cfg=await api.get("/api/config");setEjConfig(cfg);setTgConfig(cfg);}catch{}
       }
     }
@@ -1827,7 +1881,10 @@ function App(){
 
   const handleLogin=u=>{setAuthUser(u);setShowLogin(false);};
   const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");setView("home");};
-  const nav=v=>{setView(v);};
+  const nav=v=>{
+    if(v==="reports"&&!canManageOps(authUser))return;
+    setView(v);
+  };
 
   return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
     {!isOnline&&<div className="offline-bar">⚠ You're offline — data will sync when reconnected</div>}
@@ -1841,8 +1898,7 @@ function App(){
         {view==="inspect" &&<InspectView authUser={authUser} zones={zones} users={users} today={today} ejConfig={ejConfig} tgConfig={tgConfig}/>}
         {view==="tracker" &&<TrackerView authUser={authUser} zones={zones}/>}
         {view==="roster"  &&<RosterView users={users} zones={zones} authUser={authUser} today={today}/>}
-        {view==="yearplan"&&<YearPlanView users={users} zones={zones} today={today} authUser={authUser}/>}
-        {view==="reports" &&<ReportsView users={users} zones={zones}/>}
+        {view==="reports" &&canManageOps(authUser)&&<ReportsView users={users} zones={zones} authUser={authUser}/>}
       </div>
     </div>
     {!authUser&&<div onClick={()=>setShowLogin(true)} style={{position:"fixed",bottom:"calc(72px + env(safe-area-inset-bottom,0px))",right:18,background:"var(--amber)",color:"#fff",fontWeight:600,fontSize:14,padding:"11px 20px",borderRadius:40,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:7,zIndex:100}}>🔑 Log In</div>}
