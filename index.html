@@ -66,7 +66,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.1";
+const VERSION = "v5.1.1";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -544,11 +544,12 @@ function PinPad({onComplete,label,error,digits:extDigits,setDigits:extSet}){
 
 // ── LOGIN MODAL ───────────────────────────────────────────────────────────────
 function LoginModal({users,onLogin,onClose}){
+  const loginUsers=rosterPeople(users);
   const [selId,setSelId]=useState("");
   const [step,setStep]=useState("pick");
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
-  const user=users.find(u=>u.id===selId);
+  const user=loginUsers.find(u=>u.id===selId);
   const tryPin=async pin=>{
     if(!user)return;
     setLoading(true);setErr("");
@@ -574,8 +575,9 @@ function LoginModal({users,onLogin,onClose}){
             <Lbl>Your Name</Lbl>
             <select value={selId} onChange={e=>setSelId(e.target.value)} style={C.inp({marginBottom:14})}>
               <option value="">— Select your name —</option>
-              {users.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+              {loginUsers.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </select>
+            <p style={{fontSize:13,color:"var(--t3)",marginTop:-6,marginBottom:14,lineHeight:1.45}}>Active inspection team: 3 inspectors + 2 manager/admin users.</p>
             {selId&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:14}}>
               <Avatar user={user} size={40}/>
               <div><div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{user.name}</div><Mono size={12}>{user.role.toUpperCase()} · {user.id}</Mono></div>
@@ -621,10 +623,10 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,fon
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0,marginLeft:"auto"}}>
           <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",background:"var(--card2)",borderRadius:8,border:"1px solid var(--bd)"}} title="Font size">
             <span style={{fontSize:10,color:"var(--t3)"}}>A</span>
-            <input type="range" min={0.8} max={1.4} step={0.05} value={fontScale}
+            <input type="range" min={0.85} max={1.6} step={0.05} value={fontScale}
               onChange={e=>setFontScale(parseFloat(e.target.value))}
-              style={{width:56,height:3,accentColor:"var(--amber)",cursor:"pointer"}}/>
-            <span style={{fontSize:14,color:"var(--t3)"}}>A</span>
+              style={{width:92,height:4,accentColor:"var(--amber)",cursor:"pointer"}}/>
+            <span style={{fontSize:20,color:"var(--t3)",lineHeight:1}}>A</span>
           </div>
           <button onClick={()=>setTheme(t=>t==="dark"?"light":"dark")} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"5px",lineHeight:1}}>{theme==="dark"?"☀️":"🌙"}</button>
           {authUser
@@ -662,6 +664,9 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
   const [loading,setLoading]=useState(true);
   const wk=wkKey(today),dn=dowN(today),{week}=isoWk(today);
   const isOps=canManageOps(authUser);
+  const activeTeam=rosterPeople(users);
+  const activeInspectors=activeTeam.filter(u=>u.role==="inspector").length;
+  const activeOps=activeTeam.filter(u=>isManagerRole(u.role)).length;
 
   useEffect(()=>{
     async function load(){
@@ -699,7 +704,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       <div>
         <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn} · Week {week}</Mono>
         <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>{today.getHours()<12?"Good Morning":"Good Afternoon"} 👋</h1>
-        <p style={{color:"var(--t2)",fontSize:15}}>{users.filter(u=>u.role==="inspector").length} inspectors · {users.filter(u=>u.role==="manager").length} managers · {users.filter(u=>u.role==="admin").length} admins · {zones.length} zones</p>
+        <p style={{color:"var(--t2)",fontSize:15}}>{activeInspectors} inspectors · {activeOps} manager/admin inspectors · {zones.length} zones</p>
       </div>
       {authUser&&<button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>}
     </div>
@@ -1950,7 +1955,10 @@ function App(){
   // Persist prefs
   useEffect(()=>{ LS.save("ip_v4_prefs",{theme,fontScale}); },[theme,fontScale]);
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",theme); },[theme]);
-  useEffect(()=>{ document.documentElement.style.fontSize=`${fontScale*17}px`; },[fontScale]);
+  useEffect(()=>{
+    document.documentElement.style.fontSize="17px";
+    document.body.style.zoom=fontScale;
+  },[fontScale]);
   useEffect(()=>{ if(authUser) LS.save("ip_v4_user",authUser); else localStorage.removeItem("ip_v4_user"); },[authUser]);
 
   // Online/offline detection
