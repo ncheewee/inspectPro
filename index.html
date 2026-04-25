@@ -30,6 +30,7 @@
   --ok-bg:#d1fae5;--ok-fg:#065f46;--fl-bg:#fef2f2;--fl-bd:rgba(220,38,38,.2);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{width:100%;max-width:100%;overflow-x:hidden;}
 html{font-size:17px;}
 body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--t1);-webkit-font-smoothing:antialiased;transition:background .25s,color .25s;}
 h1,h2,h3{font-family:'Syne',sans-serif;font-weight:700;}
@@ -48,7 +49,7 @@ textarea{resize:vertical;}img{display:block;}
 .offline-bar{position:fixed;top:0;left:0;right:0;z-index:999;background:#92400e;color:#fde68a;font-size:13px;font-weight:600;text-align:center;padding:6px;display:flex;align-items:center;justify-content:center;gap:8px;}
 .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--surf);border-top:1px solid var(--bd);padding:0 0 env(safe-area-inset-bottom,0);box-shadow:0 -4px 20px rgba(0,0,0,.18);}
 .top-tabs{display:flex;}
-.main-pad{padding:16px 14px 80px;}
+.main-pad{padding:16px 14px 80px;max-width:100%;overflow-x:hidden;}
 @media(max-width:640px){.bottom-nav{display:flex;}.top-tabs{display:none;}.top-user-name{display:none!important;}.main-pad{padding:16px 12px 96px;}input,select,textarea{font-size:16px!important;}button{min-height:42px;}.fu{animation:none!important;}}
 </style>
 </head>
@@ -66,7 +67,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.1.1";
+const VERSION = "v5.1.2";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -605,7 +606,7 @@ const TABS=[
   {id:"roster",  l:"Roster",  icon:"⊞"},
   {id:"reports", l:"Reports", icon:"📋",opsOnly:true},
 ];
-function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,fontScale,setFontScale}){
+function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
   const visibleTabs=TABS.filter(t=>!t.opsOnly||canManageOps(authUser));
   return <>
     <nav style={{background:"var(--surf)",borderBottom:"1px solid var(--bd)",position:"sticky",top:0,zIndex:200,boxShadow:"var(--shad)"}}>
@@ -621,13 +622,6 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,fon
           {visibleTabs.map(t=><button key={t.id} onClick={()=>nav(t.id)} style={{background:view===t.id?"var(--abg)":"transparent",border:view===t.id?"1px solid var(--abd)":"1px solid transparent",color:view===t.id?"var(--amber)":"var(--t2)",borderRadius:7,padding:"6px 13px",fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>{t.l}</button>)}
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0,marginLeft:"auto"}}>
-          <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",background:"var(--card2)",borderRadius:8,border:"1px solid var(--bd)"}} title="Font size">
-            <span style={{fontSize:10,color:"var(--t3)"}}>A</span>
-            <input type="range" min={0.85} max={1.6} step={0.05} value={fontScale}
-              onChange={e=>setFontScale(parseFloat(e.target.value))}
-              style={{width:92,height:4,accentColor:"var(--amber)",cursor:"pointer"}}/>
-            <span style={{fontSize:20,color:"var(--t3)",lineHeight:1}}>A</span>
-          </div>
           <button onClick={()=>setTheme(t=>t==="dark"?"light":"dark")} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"5px",lineHeight:1}}>{theme==="dark"?"☀️":"🌙"}</button>
           {authUser
             ?<><button onClick={onAdmin} style={{...C.btn("ghost",{padding:"6px 10px",fontSize:15,display:"flex",alignItems:"center",gap:5,lineHeight:1})}}>
@@ -1780,6 +1774,11 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     return {...z,items};
   }));
   const addZone=()=>setZoneDraft(p=>[...p,{id:`Z${String(p.length+1).padStart(2,"0")}`,name:"New Zone",items:["General condition OK"],displayOrder:p.length+1}]);
+  const removeZone=(zIdx)=>{
+    const z=zoneDraft[zIdx];
+    if(!window.confirm(`Remove ${z.id} · ${z.name} from active zones? Historical reports will remain available.`))return;
+    setZoneDraft(p=>p.filter((_,i)=>i!==zIdx));
+  };
   const saveZones=async()=>{
     setZoneMsg("Saving zones…");
     try{
@@ -1892,9 +1891,10 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:430,overflowY:"auto",paddingRight:4}}>
         {zoneDraft.map((z,zIdx)=><div key={zIdx} style={{background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:10,padding:"12px"}}>
-          <div style={{display:"grid",gridTemplateColumns:"82px 1fr",gap:8,marginBottom:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"82px 1fr auto",gap:8,marginBottom:10,alignItems:"center"}}>
             <input value={z.id} onChange={e=>updateZone(zIdx,{id:e.target.value})} style={C.inp({fontFamily:"'DM Mono',monospace",fontWeight:700})}/>
             <input value={z.name} onChange={e=>updateZone(zIdx,{name:e.target.value})} style={C.inp({fontWeight:700})}/>
+            <button onClick={()=>removeZone(zIdx)} style={C.btn("dng",{padding:"7px 10px",fontSize:13})}>Remove</button>
           </div>
           <Lbl>Checks, in order</Lbl>
           {(z.items||[]).map((item,itemIdx)=><div key={itemIdx} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
@@ -1942,7 +1942,6 @@ function App(){
   const [users,setUsers]=useState([]);
   const [zones,setZones]=useState([]);
   const [theme,setTheme]=useState(saved?.theme||"dark");
-  const [fontScale,setFontScale]=useState(saved?.fontScale||1.08);
   const [view,setView]=useState("home");
   const [showLogin,setShowLogin]=useState(false);
   const [showAdmin,setShowAdmin]=useState(false);
@@ -1953,12 +1952,12 @@ function App(){
   const today=new Date();
 
   // Persist prefs
-  useEffect(()=>{ LS.save("ip_v4_prefs",{theme,fontScale}); },[theme,fontScale]);
+  useEffect(()=>{ LS.save("ip_v4_prefs",{theme}); },[theme]);
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",theme); },[theme]);
   useEffect(()=>{
     document.documentElement.style.fontSize="17px";
-    document.body.style.zoom=fontScale;
-  },[fontScale]);
+    document.body.style.zoom=1;
+  },[]);
   useEffect(()=>{ if(authUser) LS.save("ip_v4_user",authUser); else localStorage.removeItem("ip_v4_user"); },[authUser]);
 
   // Online/offline detection
@@ -1995,7 +1994,7 @@ function App(){
   return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
     {!isOnline&&<div className="offline-bar">⚠ You're offline — data will sync when reconnected</div>}
     <div style={{marginTop:!isOnline?32:0}}>
-      <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>authUser?setShowAdmin(true):setShowLogin(true)} fontScale={fontScale} setFontScale={setFontScale}/>
+      <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>authUser?setShowAdmin(true):setShowLogin(true)}/>
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
         {bootstrapErr&&<div style={{padding:"20px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",marginBottom:16,fontSize:14}}>
           ⚠ {bootstrapErr}<br/><span style={{fontSize:12,opacity:.8}}>API: {API_BASE}</span>
