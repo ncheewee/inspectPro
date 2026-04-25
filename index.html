@@ -608,6 +608,7 @@ const TABS=[
 ];
 function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
   const visibleTabs=TABS.filter(t=>!t.opsOnly||canManageOps(authUser));
+  const navTabs=authUser?[...visibleTabs,{id:"menu",l:"Menu",icon:"≡",menu:true}]:visibleTabs;
   return <>
     <nav style={{background:"var(--surf)",borderBottom:"1px solid var(--bd)",position:"sticky",top:0,zIndex:200,boxShadow:"var(--shad)"}}>
       <div style={{maxWidth:1140,margin:"0 auto",padding:"0 12px",display:"flex",alignItems:"center",gap:6}}>
@@ -619,20 +620,14 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
           </div>
         </div>
         <div className="top-tabs" style={{gap:2,flex:1,overflowX:"auto"}}>
-          {visibleTabs.map(t=><button key={t.id} onClick={()=>nav(t.id)} style={{background:view===t.id?"var(--abg)":"transparent",border:view===t.id?"1px solid var(--abd)":"1px solid transparent",color:view===t.id?"var(--amber)":"var(--t2)",borderRadius:7,padding:"6px 13px",fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>{t.l}</button>)}
+          {navTabs.map(t=>{const active=!t.menu&&view===t.id;return <button key={t.id} onClick={()=>t.menu?onAdmin():nav(t.id)} style={{background:active?"var(--abg)":"transparent",border:active?"1px solid var(--abd)":"1px solid transparent",color:active?"var(--amber)":"var(--t2)",borderRadius:7,padding:"6px 13px",fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>{t.l}</button>;})}
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0,marginLeft:"auto"}}>
           <button onClick={()=>setTheme(t=>t==="dark"?"light":"dark")} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"5px",lineHeight:1}}>{theme==="dark"?"☀️":"🌙"}</button>
           {authUser
-            ?<><button onClick={onAdmin} style={{...C.btn("ghost",{padding:"6px 10px",fontSize:15,display:"flex",alignItems:"center",gap:5,lineHeight:1})}}>
-                <span style={{display:"flex",flexDirection:"column",gap:3}}>
-                  <span style={{display:"block",width:16,height:2,background:"var(--t2)",borderRadius:1}}/>
-                  <span style={{display:"block",width:16,height:2,background:"var(--t2)",borderRadius:1}}/>
-                  <span style={{display:"block",width:16,height:2,background:"var(--t2)",borderRadius:1}}/>
-                </span>
-                <Avatar user={authUser} size={22}/>
-              </button>
-              <button onClick={onSignOut} style={C.btn("ghost",{padding:"5px 8px",fontSize:12})}>Out</button>
+            ?<>
+              <Avatar user={authUser} size={24}/>
+              <button onClick={onSignOut} style={C.btn("ghost",{padding:"5px 10px",fontSize:12})}>Log Out</button>
             </>
             :<button onClick={onSignIn} style={C.btn("pri",{padding:"6px 12px",fontSize:13})}>Log In</button>
           }
@@ -640,13 +635,10 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
       </div>
     </nav>
     <div className="bottom-nav">
-      {visibleTabs.map(t=>{const active=view===t.id;return <button key={t.id} onClick={()=>nav(t.id)} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"12px 2px 10px",gap:4,color:active?"var(--amber)":"var(--t3)",transition:"color .15s",borderTop:active?"2px solid var(--amber)":"2px solid transparent",fontFamily:"'DM Sans',sans-serif",minWidth:0}}>
+      {navTabs.map(t=>{const active=!t.menu&&view===t.id;return <button key={t.id} onClick={()=>t.menu?onAdmin():nav(t.id)} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"12px 2px 10px",gap:4,color:active?"var(--amber)":"var(--t3)",transition:"color .15s",borderTop:active?"2px solid var(--amber)":"2px solid transparent",fontFamily:"'DM Sans',sans-serif",minWidth:0}}>
         <span style={{fontSize:18,lineHeight:1}}>{t.icon}</span>
         <span style={{fontSize:11,fontWeight:active?700:600,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{t.l}</span>
       </button>;})}
-      {authUser&&<button onClick={onAdmin} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"12px 2px 10px",gap:4,color:"var(--t3)",fontFamily:"'DM Sans',sans-serif",minWidth:0,borderTop:"2px solid transparent"}}>
-        <span style={{fontSize:18,lineHeight:1}}>≡</span><span style={{fontSize:11,fontWeight:600,lineHeight:1}}>Menu</span>
-      </button>}
     </div>
   </>;
 }
@@ -657,7 +649,6 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
   const [stats,setStats]=useState({open:0,wkInsp:0});
   const [loading,setLoading]=useState(true);
   const wk=wkKey(today),dn=dowN(today),{week}=isoWk(today);
-  const isOps=canManageOps(authUser);
   const activeTeam=rosterPeople(users);
   const activeInspectors=activeTeam.filter(u=>u.role==="inspector").length;
   const activeOps=activeTeam.filter(u=>isManagerRole(u.role)).length;
@@ -683,17 +674,6 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
   const mySlots=rosterToday.filter(s=>(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
 
   return <div className="fu">
-    {isOps&&<div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:10,padding:"9px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-      <div style={{display:"flex",alignItems:"center",gap:8}}>
-        <span style={{width:7,height:7,borderRadius:"50%",background:"var(--amber)",animation:"pulse 1.5s infinite",display:"inline-block"}}/>
-        <span style={{fontWeight:600,fontSize:14,color:"var(--amber)"}}>{isAdminRole(authUser?.role)?"Admin Mode":"Manager Mode"}</span>
-        <Mono size={11} color="var(--t3)">Full access</Mono>
-      </div>
-      <div style={{display:"flex",gap:7}}>
-        <button onClick={()=>nav("roster")} style={C.btn("sec",{padding:"5px 12px",fontSize:13})}>Edit Roster</button>
-      </div>
-    </div>}
-
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:20}}>
       <div>
         <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn} · Week {week}</Mono>
@@ -742,16 +722,18 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
 
       {rosterToday.length>0&&<div style={C.card({marginBottom:14})}>
         <div style={{fontWeight:700,fontSize:17,color:"var(--t1)",marginBottom:12}}>This Week's Roster <Mono size={12} style={{marginLeft:6,background:"var(--surf)",padding:"3px 8px",borderRadius:20,textTransform:"uppercase"}}>WK{String(week).padStart(2,"0")}</Mono></div>
-        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {rosterToday.map((s,i)=>{
             const z=zones.find(z=>z.id===s.zoneId);
             const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id));
-            return <div key={i} style={{background:"var(--card2)",border:"1px solid var(--bd2)",borderRadius:9,padding:"11px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>{s.zoneId}</Mono>
-              <span style={{fontWeight:600,fontSize:14,color:"var(--t1)",flex:1,minWidth:120}}>{z?.name}</span>
-              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                {insps.map((u,j)=>u&&<div key={j} style={{display:"flex",alignItems:"center",gap:5}}>
-                  <Avatar user={u} size={24}/><span style={{fontSize:13,color:"var(--t2)"}}>{u.name.split(" ")[0]}</span>
+            return <div key={i} style={{background:"var(--card2)",border:"1px solid var(--bd2)",borderRadius:8,padding:"12px",display:"grid",gridTemplateColumns:"minmax(0,1fr) 116px",gap:10,alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+                <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>{s.zoneId}</Mono>
+                <span style={{fontWeight:700,fontSize:14,color:"var(--t1)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{z?.name}</span>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap"}}>
+                {insps.map((u,j)=>u&&<div key={j} style={{width:106,minHeight:30,display:"flex",alignItems:"center",gap:6,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
+                  <Avatar user={u} size={22}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
                 </div>)}
               </div>
             </div>;
@@ -1321,8 +1303,6 @@ function RosterView({users,zones,authUser,today}){
   };
 
   const toggleId=(arr,id)=>arr.includes(id)?arr.filter(x=>x!==id):[...arr,id];
-  const thS={background:"var(--card2)",border:"1px solid var(--bd)",padding:"8px 10px",fontSize:13,fontWeight:600,color:"var(--t2)",textAlign:"center",whiteSpace:"nowrap"};
-  const tdS={border:"1px solid var(--bd)",padding:"6px",verticalAlign:"top",minHeight:60};
 
   return <div className="fu">
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:12}}>
@@ -1350,48 +1330,45 @@ function RosterView({users,zones,authUser,today}){
       <Mono size={12} color="var(--t3)">Click a person, then click a zone. Drag works too on desktop.</Mono>
     </div>}
     {loading?<div style={{textAlign:"center",padding:"48px"}}><Spinner size={24}/></div>:
-      <div style={{overflowX:"auto",borderRadius:12,border:"1px solid var(--bd)"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
-          <thead><tr>
-            <th style={{...thS,textAlign:"left",padding:"8px 12px",width:160}}>Zone</th>
-            {viewDays.map((d,i)=>{const isT=wkKey(today)===wk;
-              return <th key={d} style={{...thS,color:isT?"var(--amber)":"var(--t2)",background:isT?"var(--abg)":thS.background}}>
-                Assigned This Week<br/><span style={{fontWeight:500,fontSize:12}}>complete any working day</span>
-              </th>;})}
-          </tr></thead>
-          <tbody>{zones.map(zone=><tr key={zone.id}>
-            <td style={{...tdS,background:"var(--card2)"}}>
-              <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"2px 7px",borderRadius:4,display:"inline-block",marginBottom:4}}>{zone.id}</Mono>
-              <div style={{fontSize:15,fontWeight:700,color:"var(--t1)"}}>{zone.name}</div>
-            </td>
-            {viewDays.map((day,di)=>{const isT=wkKey(today)===wk;
-              const slots=getSlotsForZoneDay(zone.id,day);
-              return <td key={day}
-                onClick={()=>quickAssign(day,zone.id)}
-                onDragOver={e=>canEdit&&e.preventDefault()}
-                onDrop={e=>{e.preventDefault();quickAssign(day,zone.id,e.dataTransfer.getData("text/plain"));}}
-                style={{...tdS,background:isT?"var(--abg)":pickedInspector&&canEdit?"var(--bbg)":"transparent",minWidth:110,cursor:canEdit&&pickedInspector?"copy":"default"}}>
-                <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {slots.map(s=>{
-                    const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
-                    return <div key={s.id} style={{background:"var(--surf)",borderRadius:6,padding:"5px 7px",border:"1px solid var(--bd2)"}}>
-                      {insps.map((u,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-                        <Avatar user={u} size={28}/><span style={{fontSize:15,fontWeight:700,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
-                        {completed[completionKey(u.id,zone.id)]
-                          ?<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"3px 8px",borderRadius:20}}>Done</span>
-                          :<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"3px 8px",borderRadius:20}}>Due</span>}
-                      </div>)}
-                      {canEdit&&<div style={{display:"flex",gap:4,marginTop:2}}>
-                        <button onClick={e=>{e.stopPropagation();setEf({inspIds:[...(s.inspectorIds||[])],supIds:[...(s.supervisorIds||[])],zoneId:s.zoneId});setEditCell({day,slotId:s.id});}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--t3)",padding:"1px 3px"}}>Edit ✏️</button>
-                        <button onClick={e=>{e.stopPropagation();deleteSlot(s.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"var(--red)",padding:"1px 3px"}}>✕</button>
-                      </div>}
-                    </div>;})}
-                  {canEdit&&<button onClick={e=>{e.stopPropagation();setEf({inspIds:[],supIds:[],zoneId:zone.id});setEditCell({day,slotId:null});}} style={{background:"transparent",border:"1px dashed var(--bd2)",borderRadius:5,padding:"3px 0",color:"var(--t3)",cursor:"pointer",fontSize:11,width:"100%",textAlign:"center"}}>+</button>}
-                </div>
-              </td>;
-            })}
-          </tr>)}</tbody>
-        </table>
+      <div style={{display:"flex",flexDirection:"column",gap:8,width:"100%"}}>
+        <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(190px,1.2fr)",gap:8,alignItems:"center",background:wkKey(today)===wk?"var(--abg)":"var(--card2)",border:"1px solid var(--bd)",borderRadius:8,padding:"9px 12px"}}>
+          <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase"}}>Zone</Mono>
+          <div style={{fontSize:13,fontWeight:700,color:wkKey(today)===wk?"var(--amber)":"var(--t2)",textAlign:"right"}}>Assigned This Week <span style={{fontWeight:500,color:"var(--t3)"}}>complete any working day</span></div>
+        </div>
+        {zones.map(zone=>{
+          const slots=getSlotsForZoneDay(zone.id,"Week");
+          const isDropTarget=pickedInspector&&canEdit;
+          return <div key={zone.id}
+            onClick={()=>quickAssign("Week",zone.id)}
+            onDragOver={e=>canEdit&&e.preventDefault()}
+            onDrop={e=>{e.preventDefault();quickAssign("Week",zone.id,e.dataTransfer.getData("text/plain"));}}
+            style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(190px,1.2fr)",gap:10,alignItems:"stretch",background:isDropTarget?"var(--bbg)":"var(--card)",border:`1px solid ${isDropTarget?"var(--blue)":"var(--bd)"}`,borderRadius:8,padding:10,cursor:isDropTarget?"copy":"default"}}>
+            <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+              <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>{zone.id}</Mono>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--t1)",lineHeight:1.25,overflowWrap:"anywhere"}}>{zone.name}</div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"stretch",minWidth:0}}>
+              {slots.map(s=>{
+                const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
+                return <div key={s.id} style={{background:"var(--surf)",borderRadius:8,padding:"7px",border:"1px solid var(--bd2)"}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap"}}>
+                    {insps.map((u,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:6,background:"var(--card2)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
+                      <Avatar user={u} size={24}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+                      {completed[completionKey(u.id,zone.id)]
+                        ?<span style={{fontSize:11,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"2px 7px",borderRadius:20}}>Done</span>
+                        :<span style={{fontSize:11,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"2px 7px",borderRadius:20}}>Due</span>}
+                    </div>)}
+                  </div>
+                  {canEdit&&<div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:7}}>
+                    <button onClick={e=>{e.stopPropagation();setEf({inspIds:[...(s.inspectorIds||[])],supIds:[...(s.supervisorIds||[])],zoneId:s.zoneId});setEditCell({day:"Week",slotId:s.id});}} style={C.btn("ghost",{padding:"4px 9px",fontSize:12})}>Edit</button>
+                    <button onClick={e=>{e.stopPropagation();deleteSlot(s.id);}} style={C.btn("dng",{padding:"4px 8px",fontSize:12})}>Remove</button>
+                  </div>}
+                </div>;})}
+              {slots.length===0&&<div style={{border:"1px dashed var(--bd2)",borderRadius:8,padding:"9px 10px",textAlign:"right",fontSize:13,color:"var(--t3)"}}>Unassigned</div>}
+              {canEdit&&<button onClick={e=>{e.stopPropagation();setEf({inspIds:[],supIds:[],zoneId:zone.id});setEditCell({day:"Week",slotId:null});}} style={{background:"transparent",border:"1px dashed var(--bd2)",borderRadius:7,padding:"7px 0",color:"var(--t3)",cursor:"pointer",fontSize:13,width:"100%",textAlign:"center"}}>+ Add assignment</button>}
+            </div>
+          </div>;
+        })}
       </div>
     }
     {showAutoPlan&&<AutoPlanModal users={users} zones={zones} onClose={()=>setShowAutoPlan(false)} today={today} onApplied={load}/>}
@@ -1813,6 +1790,25 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     setTgMsg(res.ok?"✅ Test Telegram sent.":`❌ Test Telegram failed: ${res.err||"check config"}`);
   };
 
+  // Pilot reset
+  const [resetOpts,setResetOpts]=useState({inspections:true,issues:true,roster:true,zones:false});
+  const [resetText,setResetText]=useState("");
+  const [resetMsg,setResetMsg]=useState("");
+  const [resetBusy,setResetBusy]=useState(false);
+  const runPilotReset=async()=>{
+    if(resetText!=="WIPE"){setResetMsg("Type WIPE to confirm.");return;}
+    if(!window.confirm("Clear selected pilot data now? Team members and notification settings will remain."))return;
+    setResetBusy(true);setResetMsg("Clearing selected data…");
+    try{
+      const res=await api.post("/api/config/pilot-reset",{confirm:resetText,...resetOpts});
+      if(resetOpts.zones){setZones([]);setZoneDraft([]);}
+      const parts=Object.entries(res.counts||{}).map(([k,v])=>`${k}: ${v}`);
+      setResetMsg(`✅ Pilot data cleared${parts.length?` (${parts.join(", ")})`:"."}`);
+      setResetText("");
+    }catch(e){setResetMsg("❌ "+e.message);}
+    setResetBusy(false);
+  };
+
   return <Modal onClose={onClose} title="Menu" maxW={540}>
     <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:16}}>
       <Avatar user={authUser} size={38}/>
@@ -1826,6 +1822,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
         <button onClick={()=>setTab("zones")} style={C.btn(tab==="zones"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🧭 Zones</button>
         <button onClick={()=>setTab("email")} style={C.btn(tab==="email"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>📧 Email</button>
         <button onClick={()=>setTab("telegram")} style={C.btn(tab==="telegram"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>✈️ Telegram</button>
+        <button onClick={()=>setTab("pilot")} style={C.btn(tab==="pilot"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>Pilot Reset</button>
       </>}
     </div>
 
@@ -1931,6 +1928,28 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
         <button onClick={saveTg} style={C.btn("pri",{padding:"9px",flex:1})}>💾 Save</button>
         <button onClick={testTg} style={C.btn("sec",{padding:"9px",flex:1})}>Send Test</button>
       </div>
+    </div>}
+
+    {tab==="pilot"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{background:"var(--fl-bg)",border:"1px solid var(--fl-bd)",borderRadius:8,padding:"11px 13px",fontSize:13,color:"var(--t2)",lineHeight:1.5}}>
+        Clears operational pilot data while keeping team accounts, PINs, and notification settings. Image files already stored on ImageKit are not deleted from ImageKit.
+      </div>
+      {[
+        {id:"inspections",label:"Inspection reports and uploaded media records"},
+        {id:"issues",label:"Tracker items and notes"},
+        {id:"roster",label:"Weekly roster assignments"},
+        {id:"zones",label:"Archive all active zones and checks"},
+      ].map(o=><label key={o.id} style={{display:"flex",alignItems:"center",gap:9,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:8,padding:"9px 11px",cursor:"pointer"}}>
+        <input type="checkbox" checked={!!resetOpts[o.id]} onChange={e=>setResetOpts(p=>({...p,[o.id]:e.target.checked}))} style={{accentColor:"var(--red)",width:18,height:18}}/>
+        <span style={{fontSize:14,fontWeight:600,color:"var(--t1)"}}>{o.label}</span>
+      </label>)}
+      <div>
+        <Lbl>Confirmation</Lbl>
+        <input value={resetText} onChange={e=>setResetText(e.target.value)} placeholder="Type WIPE" style={C.inp({fontFamily:"'DM Mono',monospace",fontWeight:700})}/>
+      </div>
+      {resetMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,background:resetMsg.startsWith("✅")?"var(--cl-bg)":resetMsg.startsWith("❌")?"var(--op-bg)":"var(--ip-bg)",color:resetMsg.startsWith("✅")?"var(--cl-fg)":resetMsg.startsWith("❌")?"var(--op-fg)":"var(--ip-fg)"}}>{resetMsg}</div>}
+      <button onClick={runPilotReset} disabled={resetBusy||resetText!=="WIPE"} style={{...C.btn("dng",{width:"100%",padding:"11px"}),opacity:(resetBusy||resetText!=="WIPE")?0.35:1}}>Clear Selected Data</button>
+      <p style={{fontSize:12,color:"var(--t3)",lineHeight:1.5}}>After clearing, use Team and Zones to set up the actual pilot roster, zones, and checklist sequence.</p>
     </div>}
   </Modal>;
 }
