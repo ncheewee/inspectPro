@@ -80,10 +80,23 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.12";
+const VERSION = "v5.5.0";
 const OPEN_INSP_KEY = "ip_open_insp_id";
+function findingList(item){
+  if(Array.isArray(item.findings)&&item.findings.length) return item.findings.map(f=>({...f, media:f.media||[]}));
+  if(item.observation||(item.media||[]).length) return [{id:null, caption:item.observation||"", media:item.media||[], legacy:true}];
+  return [];
+}
+function captionsOf(item){
+  const caps=findingList(item).map(f=>(f.caption||"").trim()).filter(Boolean);
+  return caps.join(" · ") || item.observation || "";
+}
+function allItemMedia(item){
+  const nested=findingList(item).flatMap(f=>f.media||[]);
+  return nested.length ? nested : (item.media||[]);
+}
 function normalizeInsp(insp){
-  return {...insp, items:(insp.items||[]).map(it=>({...it, media:it.media||[]}))};
+  return {...insp, items:(insp.items||[]).map(it=>({...it, media:it.media||[], findings:findingList(it)}))};
 }
 function clearOpenInsp(){ try{ localStorage.removeItem(OPEN_INSP_KEY); }catch{} }
 function latestOpenPerZone(rows, userId){
@@ -354,18 +367,30 @@ async function buildEmailContent(rec, users, zones) {
     lines.push('FLAGGED ITEMS', '─────────────');
     flagged.forEach((f, i) => {
       lines.push(`${i + 1}. ${f.label}`);
-      if (f.observation) lines.push(`   → ${f.observation}`);
-      const nPhotos = (f.media || []).filter(m => m.type === 'photo').length;
-      const nVids   = (f.media || []).filter(m => m.type === 'video').length;
-      if (nPhotos) lines.push(`   📷 ${nPhotos} photo${nPhotos>1?'s':''}`);
-      if (nVids)   lines.push(`   🎥 ${nVids} video${nVids>1?'s':''} (view in app)`);
+      const clusters=findingList(f);
+      if(clusters.length){
+        clusters.forEach((fn,j)=>{
+          const cap=(fn.caption||"").trim();
+          if(cap) lines.push(`   ${clusters.length>1?`(${j+1}) `:""}→ ${cap}`);
+          const nPhotos=(fn.media||[]).filter(m=>m.type==="photo").length;
+          const nVids=(fn.media||[]).filter(m=>m.type==="video").length;
+          if(nPhotos) lines.push(`   📷 ${nPhotos} photo${nPhotos>1?"s":""}`);
+          if(nVids) lines.push(`   🎥 ${nVids} video${nVids>1?"s":""} (view in app)`);
+        });
+      }else{
+        if (f.observation) lines.push(`   → ${f.observation}`);
+        const nPhotos = (f.media || []).filter(m => m.type === 'photo').length;
+        const nVids   = (f.media || []).filter(m => m.type === 'video').length;
+        if (nPhotos) lines.push(`   📷 ${nPhotos} photo${nPhotos>1?'s':''}`);
+        if (nVids)   lines.push(`   🎥 ${nVids} video${nVids>1?'s':''} (view in app)`);
+      }
       lines.push('');
     });
   }
   lines.push('ALL ITEMS');
   items.forEach(item => {
     const icon = item.status==='ok' ? '✓' : item.status==='flagged' ? '!' : '–';
-    const obs  = item.observation ? ` → ${item.observation}` : '';
+    const obs  = captionsOf(item) ? ` → ${captionsOf(item)}` : '';
     lines.push(`  [${icon}] ${item.label}${obs}`);
   });
   lines.push('', 'InspectPro '+VERSION+' · Property Inspection Management');
@@ -379,25 +404,28 @@ async function buildEmailContent(rec, users, zones) {
     : '✓ All clear';
 
   const flaggedHtml = flagged.map((f, fi) => {
-    const photos = (f.media||[]).filter(m => m.type==='photo');
-    const nVids  = (f.media||[]).filter(m => m.type==='video').length;
+    const clusters=findingList(f);
     const border = fi < flagged.length-1 ? 'border-bottom:1px solid #fecaca;' : '';
-    const photoImgs = photos.map(p =>
-      p.url ? `<img src="${p.thumbnail_url||p.url}" width="60" height="60" style="object-fit:cover;border-radius:5px;border:1px solid #fca5a5;margin-right:5px;" alt=""/>` : ''
-    ).join('');
+    const blocks=(clusters.length?clusters:[{caption:f.observation,media:f.media||[]}]).map(fn=>{
+      const photos=(fn.media||[]).filter(m=>m.type==="photo");
+      const nVids=(fn.media||[]).filter(m=>m.type==="video").length;
+      const photoImgs=photos.map(p=>p.url?`<img src="${p.thumbnail_url||p.url}" width="60" height="60" style="object-fit:cover;border-radius:5px;border:1px solid #fca5a5;margin-right:5px;" alt=""/>`:'').join('');
+      const cap=(fn.caption||"").trim();
+      return `${cap?`<div style="font-size:12px;color:#374151;background:#fff;border-left:3px solid #dc2626;padding:5px 9px;border-radius:0 4px 4px 0;margin-bottom:7px;">${cap}</div>`:""}
+        ${photos.length?`<div style="margin-top:5px;">${photoImgs}</div>`:""}
+        ${nVids?`<div style="margin-top:5px;font-size:11px;color:#6b7280;background:#f3f4f6;padding:3px 7px;border-radius:4px;display:inline-block;">🎥 ${nVids} video${nVids>1?"s":""} (view in app)</div>`:""}`;
+    }).join("");
     return `<div style="padding:10px 14px;${border}">
-      <div style="font-size:13px;font-weight:700;color:#0d1b2e;${f.observation?'margin-bottom:5px;':''}">${f.label}</div>
-      ${f.observation ? `<div style="font-size:12px;color:#374151;background:#fff;border-left:3px solid #dc2626;padding:5px 9px;border-radius:0 4px 4px 0;margin-bottom:7px;">${f.observation}</div>` : ''}
-      ${photos.length > 0 ? `<div style="margin-top:5px;">${photoImgs}</div>` : ''}
-      ${nVids > 0 ? `<div style="margin-top:5px;font-size:11px;color:#6b7280;background:#f3f4f6;padding:3px 7px;border-radius:4px;display:inline-block;">🎥 ${nVids} video${nVids>1?'s':''} (view in app)</div>` : ''}
+      <div style="font-size:13px;font-weight:700;color:#0d1b2e;margin-bottom:5px;">${f.label}</div>
+      ${blocks}
     </div>`;
   }).join('');
 
   const checklistHtml = items.map(item => {
     const dot = item.status==='flagged'?'#dc2626':item.status==='ok'?'#059669':'#d1d5db';
     const bg  = item.status==='flagged'?'#fef2f2':item.status==='ok'?'#f0fdf4':'#fff';
-    const obsHtml = item.observation
-      ? `<div style="color:#9ca3af;font-size:11px;margin-top:2px;font-style:italic;">${item.observation}</div>` : '';
+    const obsHtml = captionsOf(item)
+      ? `<div style="color:#9ca3af;font-size:11px;margin-top:2px;font-style:italic;">${captionsOf(item)}</div>` : '';
     return `<div style="display:flex;align-items:flex-start;padding:6px 12px;background:${bg};border-bottom:1px solid #f3f4f6;">
       <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dot};margin-top:4px;margin-right:9px;flex-shrink:0;"></span>
       <div style="font-size:12px;color:#374151;">${item.label}${obsHtml}</div>
@@ -1232,11 +1260,30 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     }catch(e){console.warn("Item update failed:",e);}
   };
 
-  const addMediaToItem=(itemId,mediaObj)=>{
-    setActiveInsp(p=>({...p,items:p.items.map(it=>it.id===itemId?{...it,media:[...(it.media||[]),mediaObj]}:it)}));
+  const addMediaToItem=(itemId,mediaObj,findingId)=>{
+    setActiveInsp(p=>({...p,items:p.items.map(it=>{
+      if(it.id!==itemId) return it;
+      let findings=it.findings||[];
+      if(findingId && !findings.some(f=>String(f.id)===String(findingId))){
+        findings=[...findings.filter(f=>f.id),{id:findingId,caption:"",media:[mediaObj]}];
+      }else{
+        findings=findings.map(f=>String(f.id)===String(findingId)?{...f,media:[...(f.media||[]),mediaObj]}:f);
+      }
+      return { ...it, media:[...(it.media||[]),mediaObj], findings };
+    })}));
   };
   const removeMediaFromItem=(itemId,mediaId)=>{
-    setActiveInsp(p=>({...p,items:p.items.map(it=>it.id===itemId?{...it,media:(it.media||[]).filter(m=>m.id!==mediaId)}:it)}));
+    setActiveInsp(p=>({...p,items:p.items.map(it=>{
+      if(it.id!==itemId) return it;
+      return {
+        ...it,
+        media:(it.media||[]).filter(m=>m.id!==mediaId),
+        findings:(it.findings||[]).map(f=>({...f,media:(f.media||[]).filter(m=>m.id!==mediaId)}))
+      };
+    })}));
+  };
+  const onItemUpdate=(itemId,patch)=>{
+    setActiveInsp(p=>({...p,items:p.items.map(it=>it.id===itemId?{...it,...patch}:it)}));
   };
 
   const finishZone=()=>setStep("summary");
@@ -1294,7 +1341,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   return <div>
     {err&&<ErrBox msg={err}/>}
     {step==="select"&&<SelectStep zones={zones} users={users} authUser={authUser} today={today} openList={openList} onStart={startInspection} onResume={resumeInspection}/>}
-    {step==="zone"&&activeInsp&&<ZoneStep inspection={activeInsp} updateItem={updateItem} addMedia={addMediaToItem} removeMedia={removeMediaFromItem} onFinish={finishZone} onCancel={cancelInspection} users={users}/>}
+    {step==="zone"&&activeInsp&&<ZoneStep inspection={activeInsp} updateItem={updateItem} addMedia={addMediaToItem} removeMedia={removeMediaFromItem} onItemUpdate={onItemUpdate} onFinish={finishZone} onCancel={cancelInspection} users={users}/>}
     {step==="summary"&&activeInsp&&<SummaryStep inspection={activeInsp} users={users} zones={zones} onSubmit={submitInspection} sending={sending}/>}
     {step==="done"&&<div style={{maxWidth:480,margin:"60px auto",textAlign:"center",padding:"0 16px"}}>
       <div style={{fontSize:52,marginBottom:14}}>✅</div>
@@ -1382,64 +1429,128 @@ function SelectStep({zones,users,authUser,today,openList=[],onStart,onResume}){
   </div>;
 }
 
-function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,users}){
+function ZoneStep({inspection,updateItem,addMedia,removeMedia,onItemUpdate,onFinish,onCancel,users}){
   const zone={id:inspection.zone_id,name:inspection.zone_name};
   const user=users.find(u=>u.id===inspection.user_id);
   const items=inspection.items||[];
   const allDone=items.every(i=>i.status!=="pending");
   const photoRefs=useRef({});
-  const [obsMap,setObsMap]=useState(()=>Object.fromEntries((inspection.items||[]).map(it=>[it.id,it.observation||""])));
-  const obsTimers=useRef({});
+  const capTimers=useRef({});
   const [lightbox,setLightbox]=useState(null);
   const [expandedOk,setExpandedOk]=useState(new Set());
-  const [markupTarget,setMarkupTarget]=useState(null); // {itemId, file}
+  const [markupTarget,setMarkupTarget]=useState(null); // {itemId, findingId, file}
   const toggleExpand=id=>setExpandedOk(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
-  const handleObsChange=(itemId,value)=>{
-    setObsMap(p=>({...p,[itemId]:value}));
-    clearTimeout(obsTimers.current[itemId]);
-    obsTimers.current[itemId]=setTimeout(()=>{
-      updateItem(itemId,{observation:value});
+  const writeFindings=(item,findings)=>{
+    onItemUpdate(item.id,{
+      findings,
+      media:findings.flatMap(f=>f.media||[]),
+      observation:findings.map(f=>(f.caption||"").trim()).filter(Boolean).join(" · ")||null
+    });
+  };
+  const persistFinding=async(item,caption,adoptLegacy=true)=>{
+    return api.post(`/api/inspections/${inspection.id}/item/${item.id}/findings`,{caption:caption||"",adoptLegacy});
+  };
+  const ensureFinding=async(item,finding)=>{
+    if(finding&&finding.id) return finding;
+    const created=await persistFinding(item,(finding&&finding.caption)||item.observation||"",true);
+    const rest=findingList(item).filter(f=>f.id);
+    writeFindings(item,[...rest,created]);
+    return created;
+  };
+  const handleCaption=(item,finding,value)=>{
+    const cur=findingList(item);
+    const list=(cur.length?cur:[{...finding}]).map(f=>(f.id===finding.id && !!f.legacy===!!finding.legacy)?{...f,caption:value}:f);
+    writeFindings(item,list);
+    const key=(finding.id||("legacy-"+item.id));
+    clearTimeout(capTimers.current[key]);
+    capTimers.current[key]=setTimeout(async()=>{
+      try{
+        if(!finding.id){
+          const created=await persistFinding(item,value,true);
+          writeFindings(item,[created,...findingList(item).filter(f=>f.id&&f.id!==created.id)]);
+        }else{
+          await api.patch(`/api/inspections/${inspection.id}/item/${item.id}/findings/${finding.id}`,{caption:value});
+        }
+      }catch(e){showToast("Could not save finding: "+e.message,"err");}
     },600);
   };
-
-  const handlePhoto=async(itemId,e)=>{
+  const addFinding=async(item)=>{
+    try{
+      const list=findingList(item);
+      let base=list.filter(f=>f.id);
+      if(list.some(f=>!f.id)){
+        const legacy=list.find(f=>!f.id);
+        const created=await persistFinding(item,legacy.caption||"",true);
+        base=[created];
+      }
+      const extra=await persistFinding(item,"",false);
+      writeFindings(item,[...base,extra]);
+    }catch(e){showToast("Could not add finding: "+e.message,"err");}
+  };
+  const delFinding=async(item,finding)=>{
+    if(!await showConfirm("Remove this finding and its photos?"))return;
+    try{
+      if(finding.id) await api.delete(`/api/inspections/${inspection.id}/item/${item.id}/findings/${finding.id}`);
+      else{
+        for(const m of (finding.media||[])){
+          try{await api.delete(`/api/media/${m.id}`);}catch{}
+        }
+        await updateItem(item.id,{observation:""});
+      }
+      writeFindings(item,finding.id?findingList(item).filter(f=>f.id!==finding.id):[]);
+    }catch(e){showToast("Could not remove finding: "+e.message,"err");}
+  };
+  const handlePhoto=(item,finding,e)=>{
     const f=e.target.files?.[0];if(!f)return;
     e.target.value="";
-    // Show markup modal before uploading
-    setMarkupTarget({itemId,file:f});
+    setMarkupTarget({itemId:item.id,finding,file:f});
   };
-
   const handleMarkupSave=async(annotatedFile)=>{
-    const{itemId}=markupTarget;
+    const{itemId,finding}=markupTarget;
     setMarkupTarget(null);
+    const item=(inspection.items||[]).find(it=>it.id===itemId);
+    if(!item)return;
     try{
+      const real=await ensureFinding(item,finding);
       const ik=await uploadToImageKit(annotatedFile,"inspectpro/photos");
       const saved=await api.post("/api/media",{
-        inspectionItemId:itemId,type:"photo",
+        inspectionItemId:itemId,type:"photo",findingId:real.id,
         imagekitFileId:ik.fileId,url:ik.url,
         thumbnailUrl:ik.thumbnailUrl,size:ik.size,name:ik.name,
       });
-      addMedia(itemId,saved);
+      addMedia(itemId,saved,real.id);
     }catch(e){showToast("Photo upload failed: "+e.message,"err");}
   };
-
-  const handleVideo=async(itemId,file)=>{
+  const handleVideo=async(item,finding,file)=>{
     saveToInspectproFolder(file,{prompt:false,name:inspectProFileName(file)}).catch(()=>{});
     try{
+      const real=await ensureFinding(item,finding);
       const ik=await uploadToImageKit(file,"inspectpro/videos");
       const saved=await api.post("/api/media",{
-        inspectionItemId:itemId,type:"video",
+        inspectionItemId:item.id,type:"video",findingId:real.id,
         imagekitFileId:ik.fileId,url:ik.url,
         thumbnailUrl:ik.thumbnailUrl,size:ik.size,name:ik.name,
       });
-      addMedia(itemId,saved);
+      addMedia(item.id,saved,real.id);
     }catch(e){showToast("Video upload failed: "+e.message,"err");}
   };
-
   const delMedia=async(itemId,mediaId)=>{
     try{await api.delete(`/api/media/${mediaId}`);removeMedia(itemId,mediaId);}
     catch(e){showToast("Delete failed: "+e.message,"err");}
+  };
+  const mediaThumb=(item,finding,m,mi)=>{
+    const media=finding.media||[];
+    const photos=media.filter(x=>x.type==="photo");
+    return m.type==="photo"
+      ?<div key={m.id||mi} onClick={()=>{const lbItems=photos.map((x,i)=>({type:"photo",url:x.url,caption:finding.caption||`Photo ${i+1}`}));openLightbox(lbItems,photos.indexOf(m));}} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0,cursor:"zoom-in"}}>
+        <img src={m.thumbnail_url||m.url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        <button onClick={e=>{e.stopPropagation();delMedia(item.id,m.id);}} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
+      </div>
+      :<div key={m.id||mi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0,background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <span style={{fontSize:22}}>🎥</span>
+        <button onClick={()=>delMedia(item.id,m.id)} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
+      </div>;
   };
 
   return <div style={{maxWidth:680,margin:"0 auto"}} className="fu">
@@ -1467,7 +1578,8 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
 
     <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:16}}>
       {items.map((item)=>{
-        const media=item.media||[];
+        const findings=findingList(item);
+        const open=item.status==="flagged"||(item.status==="ok"&&expandedOk.has(item.id));
         return <div key={item.id} style={{background:item.status==="flagged"?"var(--fl-bg)":item.status==="ok"?"var(--ok-bg)":"var(--card)",border:`1px solid ${item.status==="flagged"?"var(--fl-bd)":item.status==="ok"?"var(--ok-fg)33":"var(--bd)"}`,borderRadius:10,padding:"12px 14px",transition:"all .2s"}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:9}}>
             <div style={{display:"flex",gap:5,flexShrink:0}}>
@@ -1480,30 +1592,30 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
                 <Badge status={item.status}/>
                 {item.status==="ok"&&<button onClick={()=>toggleExpand(item.id)} style={C.btn("ghost",{padding:"3px 9px",fontSize:12,color:"var(--t3)",flexShrink:0})}>{expandedOk.has(item.id)?"▲ Hide":"▼ Notes"}</button>}
               </div>
-              {(item.status==="flagged"||(item.status==="ok"&&expandedOk.has(item.id)))&&<textarea
-                placeholder={item.status==="ok"?"Optional notes…":"Describe the issue…"}
-                value={obsMap[item.id]??item.observation??""}
-                onChange={e=>handleObsChange(item.id,e.target.value)}
-                style={C.inp({marginTop:8,height:56,fontSize:13})}
-                autoFocus={item.status==="flagged"}
-              />}
-              {(item.status==="flagged"||(item.status==="ok"&&expandedOk.has(item.id)))&&<div style={{marginTop:8,display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-                <button onClick={()=>photoRefs.current[item.id]?.click()} style={C.btn("ghost",{padding:"5px 10px",fontSize:12})}>
-                  📷 Photo{media.filter(m=>m.type==="photo").length>0?` (${media.filter(m=>m.type==="photo").length})`:""}</button>
-                <input type="file" accept="image/*" capture="environment" style={{display:"none"}} ref={el=>photoRefs.current[item.id]=el} onChange={e=>handlePhoto(item.id,e)}/>
-                <VideoCapture onCapture={f=>handleVideo(item.id,f)}/>
-                {media.map((m,mi)=>{
-                  const photos=media.filter(x=>x.type==="photo");
-                  return m.type==="photo"
-                  ?<div key={mi} onClick={()=>{const lbItems=photos.map((x,i)=>({type:"photo",url:x.url,caption:`Photo ${i+1}`}));openLightbox(lbItems,photos.indexOf(m));}} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0,cursor:"zoom-in"}}>
-                    <img src={m.thumbnail_url||m.url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                    <button onClick={e=>{e.stopPropagation();delMedia(item.id,m.id);}} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
-                  </div>
-                  :<div key={mi} style={{position:"relative",width:56,height:56,borderRadius:6,overflow:"hidden",border:"1px solid var(--bd2)",flexShrink:0,background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <span style={{fontSize:22}}>🎥</span>
-                    <button onClick={()=>delMedia(item.id,m.id)} style={{position:"absolute",top:1,right:1,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:3,fontSize:9,cursor:"pointer",padding:"1px 3px"}}>✕</button>
+              {open&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:8}}>
+                {(findings.length?findings:[{id:null,caption:"",media:[],legacy:true}]).map((fn,fi)=>{
+                  const key=fn.id||("legacy-"+item.id+"-"+fi);
+                  return <div key={key} style={{background:"var(--card)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 9px"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
+                      <Mono size={11} color="var(--t3)">Finding {fi+1}</Mono>
+                      {(findings.length>1||(fn.caption||(fn.media||[]).length))&&<button onClick={()=>delFinding(item,fn)} style={C.btn("ghost",{padding:"2px 8px",fontSize:11,color:"var(--t3)"})}>Remove</button>}
+                    </div>
+                    <textarea
+                      placeholder={item.status==="ok"?"Optional notes…":"Describe this finding…"}
+                      value={fn.caption||""}
+                      onChange={e=>handleCaption(item,fn,e.target.value)}
+                      style={C.inp({height:52,fontSize:13})}
+                    />
+                    <div style={{marginTop:7,display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+                      <button onClick={()=>photoRefs.current[key]?.click()} style={C.btn("ghost",{padding:"5px 10px",fontSize:12})}>
+                        📷 Photo{(fn.media||[]).filter(m=>m.type==="photo").length?` (${(fn.media||[]).filter(m=>m.type==="photo").length})`:""}</button>
+                      <input type="file" accept="image/*" capture="environment" style={{display:"none"}} ref={el=>photoRefs.current[key]=el} onChange={e=>handlePhoto(item,fn,e)}/>
+                      <VideoCapture onCapture={f=>handleVideo(item,fn,f)}/>
+                      {(fn.media||[]).map((m,mi)=>mediaThumb(item,fn,m,mi))}
+                    </div>
                   </div>;
                 })}
+                <button onClick={()=>addFinding(item)} style={C.btn("ghost",{padding:"6px 10px",fontSize:12,alignSelf:"flex-start"})}>+ Add finding</button>
               </div>}
             </div>
           </div>
@@ -1550,7 +1662,7 @@ function SummaryStep({inspection,users,zones,onSubmit,sending}){
       <div style={{fontWeight:600,fontSize:14,color:"var(--red)",marginBottom:11}}>⚠ {flagged.length} Flagged – will go to Tracker</div>
       {flagged.map((f,i)=><div key={i} style={{background:"var(--fl-bg)",borderRadius:8,padding:"9px 11px",marginBottom:6}}>
         <div style={{fontSize:14,fontWeight:600,color:"var(--t1)"}}>{f.label}</div>
-        {f.observation&&<div style={{fontSize:13,color:"var(--t2)",marginTop:3}}>{f.observation}</div>}
+        {findingList(f).map((fn,j)=>(fn.caption||(fn.media||[]).length)?<div key={fn.id||j} style={{fontSize:13,color:"var(--t2)",marginTop:4}}>{findingList(f).length>1?`${j+1}. `:""}{fn.caption||`${(fn.media||[]).length} photo(s)`}</div>:null)}
       </div>)}
     </div>}
     <button onClick={onSubmit} disabled={sending} style={{...C.btn("pri",{width:"100%",padding:"13px",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:8}),opacity:sending?0.6:1}}>
@@ -2406,11 +2518,13 @@ function ReportsView({users,zones,authUser}){
                       <span style={{width:9,height:9,borderRadius:"50%",background:dot,flexShrink:0,marginTop:5}}/>
                       <div style={{flex:1}}>
                         <div style={{fontSize:13,color:"var(--t1)",fontWeight:item.status==="flagged"?600:400}}>{item.label}</div>
-                        {item.observation&&<div style={{fontSize:12,color:"var(--t3)",marginTop:2,fontStyle:"italic"}}>{item.observation}</div>}
-                        {(item.media||[]).length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
-                          {item.media.map((m,mi)=>{
-                            const photos=item.media.filter(x=>x.type==="photo");
-                            const videos=item.media.filter(x=>x.type==="video");
+                        {findingList(item).map((fn,fi)=>
+                          <div key={fn.id||fi} style={{marginTop:6}}>
+                            {fn.caption&&<div style={{fontSize:12,color:"var(--t3)",fontStyle:"italic"}}>{fn.caption}</div>}
+                            {(fn.media||[]).length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
+                          {(fn.media||[]).map((m,mi)=>{
+                            const photos=(fn.media||[]).filter(x=>x.type==="photo");
+                            const videos=(fn.media||[]).filter(x=>x.type==="video");
                             return m.type==="photo"
                             ?<img key={mi} src={m.thumbnail_url||m.url}
                               onClick={()=>{const lbItems=photos.map((x,i)=>({type:"photo",url:x.url,caption:`${item.label} – photo ${i+1}`}));openLightbox(lbItems,photos.indexOf(m));}}
@@ -2418,7 +2532,9 @@ function ReportsView({users,zones,authUser}){
                             :<div key={mi} onClick={()=>{const lbItems=videos.map((x,i)=>({type:"video",url:x.url,caption:`${item.label} – video ${i+1}`}));openLightbox(lbItems,videos.indexOf(m));}}
                               style={{width:52,height:52,borderRadius:5,border:"1px solid var(--bd)",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-in"}}><span style={{fontSize:20}}>🎥</span></div>;
                           })}
-                        </div>}
+                            </div>}
+                          </div>
+                        )}
                       </div>
                       <Badge status={item.status}/>
                     </div>;
